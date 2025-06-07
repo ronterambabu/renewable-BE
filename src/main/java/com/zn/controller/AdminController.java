@@ -1,5 +1,7 @@
 package com.zn.controller;
 
+import java.util.Optional;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,6 +29,8 @@ public class AdminController {
 	@Autowired
 	private IAccommodationRepo accommodationRepository;
 	
+	@Autowired
+	private com.zn.repository.IPricingConfigRepository pricingConfigRepository;
 	
 	// login admin
 	@PostMapping("/api/admin/login")
@@ -84,64 +88,91 @@ public class AdminController {
 		adminService.insertAccommodation(accommodation);
 		return ResponseEntity.ok("Accommodation inserted successfully.");
 	}
-	// insert presenttation type in PresentationType table
-	@PostMapping("/api/admin/presentation-type")
-	public ResponseEntity<String> insertPresentationType(@RequestBody PresentationType presentationType) {
-		if (presentationType == null || presentationType.getType() == null ) {
-			return ResponseEntity.badRequest().body("Presentation type is required.");
-		}
-		
-		adminService.insertPresentationType(presentationType);
-		return ResponseEntity.ok("Presentation type inserted successfully.");
-	}
-	
-	// insert pricing config in PricingConfig table
-	// note : insert accommodation and presentation type first before inserting pricing config
 	@PostMapping("/api/admin/pricing-config")
 	public ResponseEntity<?> insertPricingConfig(@RequestBody PricingConfig config) {
 	    try {
-	        // Step 1: Extract and save PresentationType
-	        PresentationType presentationType = config.getPresentationType();
-	        if (presentationType == null || presentationType.getType() == null) {
+	        // Step 1: Validate PresentationType
+	        PresentationType inputType = config.getPresentationType();
+	        if (inputType == null || inputType.getType() == null) {
 	            return ResponseEntity.badRequest().body("Presentation type is required.");
 	        }
-	        PresentationType savedPresentationType = presentationTypeRepository.save(presentationType);
 
-	        // Step 2: Extract and save AccommodationOption (optional)
-	        Accommodation savedAccommodation = null;
-	        if (config.getAccommodationOption() != null) {
-	            Accommodation accommodation = config.getAccommodationOption();
-	            savedAccommodation = accommodationRepository.save(accommodation);
+	        // Step 2: Try to fetch PresentationType
+	        PresentationType savedPresentationType = presentationTypeRepository.findByType(inputType.getType())
+	            .orElse(null);
+
+	        if (savedPresentationType == null) {
+	            try {
+	                savedPresentationType = presentationTypeRepository.save(inputType);
+	            } catch (Exception e) {
+	                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+	                    .body("Failed to save PresentationType: " + e.getMessage());
+	            }
 	        }
 
-	        // Step 3: Set saved PresentationType and Accommodation back to config
-	        config.setPresentationType(savedPresentationType);
-	        config.setAccommodationOption(savedAccommodation);
+	        // Step 3: Handle Accommodation
+	        Accommodation savedAccommodation = null;
+	        if (config.getAccommodationOption() != null) {
+	            Accommodation acc = config.getAccommodationOption();
+	            savedAccommodation = accommodationRepository.findByNightsAndGuests(acc.getNights(), acc.getGuests())
+	                .orElse(null);
+	            if (savedAccommodation == null) {
+	                try {
+	                    savedAccommodation = accommodationRepository.save(acc);
+	                } catch (Exception e) {
+	                    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+	                        .body("Failed to save Accommodation: " + e.getMessage());
+	                }
+	            }
+	        }
 
-	        // Step 4: Save PricingConfig
-	        PricingConfig savedConfig = adminService.insertPricingConfig(config);
+	        // Step 4: Check for PricingConfig WITH Accommodation
+	        boolean insertedWithAccommodation = false;
+	        if (savedAccommodation != null) {
+	            Optional<PricingConfig> existingWithAcc = pricingConfigRepository
+	                .findByPresentationTypeAndAccommodationOption(savedPresentationType, savedAccommodation);
+	            if (existingWithAcc.isEmpty()) {
+	                PricingConfig withAcc = new PricingConfig();
+	                withAcc.setPresentationType(savedPresentationType);
+	                withAcc.setAccommodationOption(savedAccommodation);
+	                withAcc.setProcessingFeePercent(config.getProcessingFeePercent());
+	                adminService.insertPricingConfig(withAcc);
+	                insertedWithAccommodation = true;
+	            }
+	        }
 
-	        return ResponseEntity.ok(savedConfig);
+	        // Step 5: Check for PricingConfig WITHOUT Accommodation
+	        Optional<PricingConfig> existingWithoutAcc = pricingConfigRepository
+	            .findByPresentationTypeAndAccommodationOption(savedPresentationType, null);
+
+	        boolean insertedWithoutAccommodation = false;
+	        if (existingWithoutAcc.isEmpty()) {
+	            PricingConfig withoutAcc = new PricingConfig();
+	            withoutAcc.setPresentationType(savedPresentationType);
+	            withoutAcc.setAccommodationOption(null);
+	            withoutAcc.setProcessingFeePercent(config.getProcessingFeePercent());
+	            adminService.insertPricingConfig(withoutAcc);
+	            insertedWithoutAccommodation = true;
+	        }
+
+	        // Step 6: Response
+	        if (!insertedWithAccommodation && !insertedWithoutAccommodation) {
+	            return ResponseEntity.status(HttpStatus.CONFLICT)
+	                .body("Both pricing configurations already exist.");
+	        }
+
+	        return ResponseEntity.ok("Pricing configurations inserted:"
+	            + (insertedWithAccommodation ? " with accommodation" : "")
+	            + (insertedWithoutAccommodation ? " without accommodation" : ""));
 
 	    } catch (Exception e) {
 	        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-	                .body("Failed to insert pricing config: " + e.getMessage());
+	            .body("Failed to insert pricing config: " + e.getMessage());
 	    }
 	}
 
 	
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
-		
+
 		
 		
 //	    Long presentationTypeId = config.getPresentationType().getId();

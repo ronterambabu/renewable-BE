@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import com.zn.entity.Accommodation;
 import com.zn.entity.PresentationType;
 import com.zn.entity.PricingConfig;
 
@@ -23,4 +24,7 @@ public interface IPricingConfigRepository extends JpaRepository<PricingConfig, L
 		        @Param("presentationType") PresentationType presentationType,
 		        @Param("nights") int nights,
 		        @Param("guests") int guests);
+
+	Optional<PricingConfig> findByPresentationTypeAndAccommodationOption(PresentationType savedPresentationType,
+			Accommodation savedAccommodation);
 }

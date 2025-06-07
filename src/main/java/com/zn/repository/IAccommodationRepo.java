@@ -9,4 +9,5 @@ import com.zn.entity.Accommodation;
 public interface IAccommodationRepo extends JpaRepository<Accommodation, Long>{
 
 	 Optional<Accommodation> findByNightsAndGuests(int nights, int guests);
+	 
 }
