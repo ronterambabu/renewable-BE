@@ -4,6 +4,7 @@ import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -40,7 +41,7 @@ public class FormSubmission {
 	}
 
 	// get all interested in options find all interested in options
-	@PostMapping("/get-interested-in-options")
+	@GetMapping("/get-interested-in-options")
 	public ResponseEntity<?> getInterestedInOptions() {
 		List<?> interestedInOptions = formSubmissionService.getInterestedInOptions();
 		return ResponseEntity.ok(interestedInOptions);	
@@ -48,7 +49,7 @@ public class FormSubmission {
 		
 	}
 	// get all session options
-	@PostMapping("/get-session-options")
+	@GetMapping("/get-session-options")
 	public ResponseEntity<?> getSessionOptions() {
 		List<?> sessionOptions = formSubmissionService.getSessionOptions();
 		return ResponseEntity.ok(sessionOptions);	
