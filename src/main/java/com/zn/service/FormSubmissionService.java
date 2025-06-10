@@ -1,5 +1,7 @@
 package com.zn.service;
 
+
+
 import java.util.List;
 import java.util.Optional;
 
@@ -20,7 +22,10 @@ import com.zn.repository.IFromSubmissionRepo;
 import com.zn.repository.IIntrestedInOptionsRepo;
 import com.zn.repository.ISessionOption;
 
+import lombok.extern.slf4j.Slf4j;
+
 @Service
+@Slf4j
 public class FormSubmissionService {
 
     @Value("${supabase.url}")
@@ -107,8 +112,10 @@ public class FormSubmissionService {
 
 	public List<?> getInterestedInOptions() {
 		try {
+			log.info("Retrieving interested in options from repository");
 			return interestedInRepo.findAll();
 		} catch (Exception e) {
+			log.error("Error retrieving interested in options: ", e);
 			e.printStackTrace();
 			return null; // or handle the error appropriately
 		}
