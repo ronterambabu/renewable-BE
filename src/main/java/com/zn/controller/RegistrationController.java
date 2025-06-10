@@ -108,7 +108,7 @@ public class RegistrationController {
     }
 
     // get all accommodation options
-    @GetMapping("/get-all-registration-forms")
+    @GetMapping("/get-all-accommodation-options")
     public ResponseEntity<?> getAllRegistrationForms() {
 		return ResponseEntity.ok(accommodationRepository.findAll());
 	}
