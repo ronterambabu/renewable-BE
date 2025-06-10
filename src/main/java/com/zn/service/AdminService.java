@@ -191,16 +191,16 @@ public class AdminService {
 	}
 
 
-	public String loginAdmin(Admin adminCredentials) {
+	public Admin loginAdmin(Admin adminCredentials) {
 		if (adminCredentials == null || adminCredentials.getEmail() == null || adminCredentials.getPassword() == null) {
-			return "Username and password are required.";
+
+			throw new IllegalArgumentException("Admin credentials cannot be null.");
 		}
 		Admin admin = adminRepo.findByEmailAndPassword(adminCredentials.getEmail(),adminCredentials.getPassword());
 		if (admin == null) {
-			return "Invalid username or password.";
+			throw new IllegalArgumentException("Invalid username or password.");
 		}
-		return "Login successful.";
-		
+		return admin; // Return the found admin or handle as needed		
 		
 	}
 

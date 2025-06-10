@@ -37,25 +37,16 @@ public class AdminController {
 	
 	// login admin
 	@PostMapping("/api/admin/login")
-	public ResponseEntity<String> loginAdmin(@RequestBody Admin adminCredentials) {
+	public ResponseEntity<Admin> loginAdmin(@RequestBody Admin adminCredentials) {
 		if (adminCredentials == null || adminCredentials.getEmail() == null || adminCredentials.getPassword() == null) {
-			return ResponseEntity.badRequest().body("Admin credentials are required.");
+			return ResponseEntity.badRequest().body(null);
 		}
-		
-		String response = adminService.loginAdmin(adminCredentials);
-		if (response == "Invalid username or password.") {
-			return ResponseEntity.status(401).body("Invalid credentials.");
-		}
-		else if (response.equals("Admin not found")) {
-			return ResponseEntity.status(404).body("Admin not found.");
-			
-		}
-		else if (response.equals("Login successful.")) {
-			return ResponseEntity.ok("Login successful.");
-		}
-		else {
-			return ResponseEntity.status(500).body("An error occurred during login.");
-		}
+
+		Admin admin = adminService.loginAdmin(adminCredentials);
+		if (admin == null) {
+			return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(null);
+		}	
+		return ResponseEntity.ok(admin);
 	}
 	
 	// insert Sessions in SessionOption table
