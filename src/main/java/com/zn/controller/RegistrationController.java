@@ -14,6 +14,7 @@ import com.zn.dto.PriceCalculationRequestDTO;
 import com.zn.entity.PresentationType;
 import com.zn.entity.PricingConfig;
 import com.zn.entity.RegistrationForm;
+import com.zn.repository.IAccommodationRepo;
 import com.zn.repository.IPresentationTypeRepo;
 import com.zn.repository.IPricingConfigRepository;
 import com.zn.repository.IRegistrationFormRepository;
@@ -30,6 +31,12 @@ public class RegistrationController {
 
     @Autowired
     private IRegistrationFormRepository registrationFormRepository;
+    
+    
+    
+    @Autowired
+    private IAccommodationRepo accommodationRepository;
+    
     
     @PostMapping("/get-pricing-config")
     public ResponseEntity<?> getPricingConfig(@RequestBody PriceCalculationRequestDTO request) {
@@ -100,5 +107,9 @@ public class RegistrationController {
         
     }
 
-    
+    // get all accommodation options
+    @GetMapping("/get-all-registration-forms")
+    public ResponseEntity<?> getAllRegistrationForms() {
+		return ResponseEntity.ok(accommodationRepository.findAll());
+	}
 }
