@@ -5,6 +5,7 @@ import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -185,7 +186,7 @@ public class AdminController {
 //	}
 	// get the prising config details by id
 	@PostMapping("/api/admin/pricing-config/details/{id}")
-    	public ResponseEntity<?> getPricingConfigDetails(@RequestBody Long id) {
+    public ResponseEntity<?> getPricingConfigDetails(@RequestBody Long id) {
 		if (id == null) {
 			return ResponseEntity.badRequest().body("Pricing config ID is required.");
 		}
@@ -201,6 +202,12 @@ public class AdminController {
 	@PostMapping("/api/admin/registration-forms")
 	public ResponseEntity<?> getAllRegistrationForms() {
 		return ResponseEntity.ok(adminService.getAllRegistrationForms());
+	}
+	
+	// get all abstract form submissions
+	@GetMapping("/api/admin/abstract-submissions")
+	public ResponseEntity<?> getAllAbstractSubmissions() {
+		return ResponseEntity.ok(adminService.getAllAbstractSubmissions());
 	}
 
 }

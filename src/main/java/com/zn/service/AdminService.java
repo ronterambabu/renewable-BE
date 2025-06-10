@@ -204,6 +204,18 @@ public class AdminService {
 		
 	}
 
+
+	public List<Form> getAllAbstractSubmissions() {
+		try {
+			return fromSubmissionRepo.findAll();
+		} catch (Exception e) {
+			e.printStackTrace();
+			return null; // or handle the error appropriately
+		}
+		
+		
+	}
+
 	
 	
 	
