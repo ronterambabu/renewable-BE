@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.zn.dto.InterestedInOptionDTO;
+import com.zn.dto.SessionOptionDTO;
 import com.zn.entity.Accommodation;
 import com.zn.entity.Admin;
 import com.zn.entity.PresentationType;
@@ -56,27 +58,25 @@ public class AdminController {
 	}
 	
 	// insert Sessions in SessionOption table
-	@PostMapping("/api/admin/sessions")
-	public ResponseEntity<String> insertSessions(@RequestBody String sessionOption) {
-		if (sessionOption == null || sessionOption.isEmpty()) {
-			return ResponseEntity.badRequest().body("Session option is required.");
-		}
-		
-		String response = adminService.insertSession(sessionOption);
-		return ResponseEntity.ok(response);
-	}
-	
-	// inseet InterestedInOptions in InterestedInOptions table
-	@PostMapping("/api/admin/interested-in")
-	public ResponseEntity<String> insertInterestedInOptions(@RequestBody String interestedInOption) {
-		if (interestedInOption == null || interestedInOption.isEmpty()) {
-			return ResponseEntity.badRequest().body("Interested In option is required.");
-		}
-		
-		adminService.insertInterestedInOption(interestedInOption);
-		return ResponseEntity.ok("Interested In option inserted successfully.");
-	}
-	
+	 @PostMapping("/sessions")
+	    public ResponseEntity<String> insertSession(@RequestBody SessionOptionDTO dto) {
+	        if (dto.getSessionOption() == null || dto.getSessionOption().trim().isEmpty()) {
+	            return ResponseEntity.badRequest().body("Session option is required.");
+	        }
+
+	        String result = adminService.insertSession(dto.getSessionOption().trim());
+	        return ResponseEntity.ok(result);
+	    }
+
+	    @PostMapping("/interested-in")
+	    public ResponseEntity<String> insertInterestedInOption(@RequestBody InterestedInOptionDTO dto) {
+	        if (dto.getInterestedInOption() == null || dto.getInterestedInOption().trim().isEmpty()) {
+	            return ResponseEntity.badRequest().body("Interested In option is required.");
+	        }
+
+	        adminService.insertInterestedInOption(dto.getInterestedInOption().trim());
+	        return ResponseEntity.ok("Interested In option inserted successfully.");
+	    }
 	
 	// insert acoommodation in Accommodation table
 	@PostMapping("/api/admin/accommodation")
