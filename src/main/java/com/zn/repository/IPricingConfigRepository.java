@@ -31,12 +31,16 @@ public interface IPricingConfigRepository extends JpaRepository<PricingConfig, L
 	
 	@Query("""
 		    SELECT p FROM PricingConfig p
+		    LEFT JOIN p.accommodationOption ao
 		    WHERE p.presentationType = :presentationType
-		    AND (p.accommodationOption.nights = 0 OR p.accommodationOption IS NULL)
-		    AND (p.accommodationOption.guests = 0 OR p.accommodationOption IS NULL)
+		    AND (
+		        p.accommodationOption IS NULL
+		        OR (ao.nights = 0 AND ao.guests = 0)
+		    )
 		""")
 		List<PricingConfig> findAllByPresentationTypeAndNoAccommodation(
-		    @Param("presentationType") PresentationType presentationType);
+		    @Param("presentationType") PresentationType presentationType
+		);
 
 	@Query("""
 		    SELECT p FROM PricingConfig p
