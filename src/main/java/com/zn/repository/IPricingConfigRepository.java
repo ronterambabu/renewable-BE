@@ -1,5 +1,6 @@
 package com.zn.repository;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -27,4 +28,26 @@ public interface IPricingConfigRepository extends JpaRepository<PricingConfig, L
 
 	Optional<PricingConfig> findByPresentationTypeAndAccommodationOption(PresentationType savedPresentationType,
 			Accommodation savedAccommodation);
+	
+	@Query("""
+		    SELECT p FROM PricingConfig p
+		    WHERE p.presentationType = :presentationType
+		    AND (p.accommodationOption.nights = 0 OR p.accommodationOption IS NULL)
+		    AND (p.accommodationOption.guests = 0 OR p.accommodationOption IS NULL)
+		""")
+		List<PricingConfig> findAllByPresentationTypeAndNoAccommodation(
+		    @Param("presentationType") PresentationType presentationType);
+
+	@Query("""
+		    SELECT p FROM PricingConfig p
+		    WHERE p.presentationType = :presentationType
+		    AND p.accommodationOption.nights = :nights
+		    AND p.accommodationOption.guests = :guests
+		""")
+		List<PricingConfig> findAllByPresentationTypeAndAccommodationDetails(
+		    @Param("presentationType") PresentationType presentationType,
+		    @Param("nights") int nights,
+		    @Param("guests") int guests);
+
+
 }
