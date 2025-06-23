@@ -4,9 +4,11 @@ import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import com.zn.dto.AdminResponseDTO;
 import com.zn.entity.Accommodation;
 import com.zn.entity.Admin;
 import com.zn.entity.Form;
@@ -24,6 +26,9 @@ import com.zn.repository.IPricingConfigRepository;
 import com.zn.repository.IRegistrationFormRepository;
 import com.zn.repository.ISessionOption;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @Service
 public class AdminService {
 	   @Value("${supabase.url}")
@@ -54,6 +59,9 @@ public class AdminService {
 	
 	@Autowired
 	private IAdminRepo adminRepo;
+	
+	@Autowired
+	private PasswordEncoder passwordEncoder;
 	
 	  private final RestTemplate restTemplate = new RestTemplate();
 
@@ -193,15 +201,19 @@ public class AdminService {
 
 	public Admin loginAdmin(Admin adminCredentials) {
 		if (adminCredentials == null || adminCredentials.getEmail() == null || adminCredentials.getPassword() == null) {
-
 			throw new IllegalArgumentException("Admin credentials cannot be null.");
 		}
-		Admin admin = adminRepo.findByEmailAndPassword(adminCredentials.getEmail(),adminCredentials.getPassword());
+		Admin admin = adminRepo.findByEmail(adminCredentials.getEmail());
 		if (admin == null) {
+			log.warn("Login failed: Admin not found for email: {}", adminCredentials.getEmail());
 			throw new IllegalArgumentException("Invalid username or password.");
 		}
-		return admin; // Return the found admin or handle as needed		
-		
+		if (!passwordEncoder.matches(adminCredentials.getPassword(), admin.getPassword())) {
+			log.warn("Login failed: Password mismatch for email: {}", adminCredentials.getEmail());
+			throw new IllegalArgumentException("Invalid username or password.");
+		}
+		log.info("Admin login successful for email: {}", adminCredentials.getEmail());
+		return admin;
 	}
 
 
@@ -215,8 +227,21 @@ public class AdminService {
 		
 		
 	}
-
 	
-	
+	/**
+	 * Converts Admin entity to AdminResponseDTO (without password)
+	 */
+	public AdminResponseDTO convertToAdminResponseDTO(Admin admin) {
+		if (admin == null) {
+			return null;
+		}
+		
+		return new AdminResponseDTO(
+			admin.getId() != null ? admin.getId().longValue() : null,
+			admin.getEmail(),
+			admin.getName(),
+			admin.getRole()
+		);
+	}
 	
 }

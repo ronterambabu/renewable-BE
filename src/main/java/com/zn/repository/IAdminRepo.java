@@ -8,4 +8,5 @@ public interface IAdminRepo extends JpaRepository<Admin, Integer> {
 		
 	
 	Admin findByEmailAndPassword(String email, String password);
+	Admin findByEmail(String email);
 }

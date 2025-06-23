@@ -4,6 +4,7 @@ import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -11,21 +12,31 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.zn.dto.AdminLoginRequestDTO;
+import com.zn.dto.AdminResponseDTO;
 import com.zn.dto.InterestedInOptionDTO;
 import com.zn.dto.SessionOptionDTO;
 import com.zn.entity.Accommodation;
 import com.zn.entity.Admin;
 import com.zn.entity.PresentationType;
 import com.zn.entity.PricingConfig;
+import com.zn.exception.AdminAuthenticationException;
+import com.zn.exception.DataProcessingException;
+import com.zn.exception.ResourceNotFoundException;
 import com.zn.repository.IAccommodationRepo;
 import com.zn.repository.IPresentationTypeRepo;
+import com.zn.security.JwtUtil;
 import com.zn.service.AdminService;
+
+import jakarta.servlet.http.HttpServletResponse;
 
 @RestController
 @RequestMapping("/admin")
-public class AdminController {
-	@Autowired
+public class AdminController {	@Autowired
 	private AdminService adminService;
+	
+	@Autowired
+	private JwtUtil jwtUtil;
 	
 	@Autowired
 	private IPresentationTypeRepo presentationTypeRepository;
@@ -33,52 +44,93 @@ public class AdminController {
 	private IAccommodationRepo accommodationRepository;
 	
 	@Autowired
-	private com.zn.repository.IPricingConfigRepository pricingConfigRepository;
-	
-	// login admin
+	private com.zn.repository.IPricingConfigRepository pricingConfigRepository;	// login admin
 	@PostMapping("/api/admin/login")
-	public ResponseEntity<Admin> loginAdmin(@RequestBody Admin adminCredentials) {
-		if (adminCredentials == null || adminCredentials.getEmail() == null || adminCredentials.getPassword() == null) {
-			return ResponseEntity.badRequest().body(null);
-		}
+	public ResponseEntity<AdminResponseDTO> loginAdmin(@RequestBody AdminLoginRequestDTO loginRequest, HttpServletResponse response) {
+		try {
+			if (loginRequest == null || loginRequest.getEmail() == null || loginRequest.getPassword() == null) {
+				throw new IllegalArgumentException("Email and password are required");
+			}
 
-		Admin admin = adminService.loginAdmin(adminCredentials);
-		if (admin == null) {
-			return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(null);
-		}	
-		return ResponseEntity.ok(admin);
+			if (loginRequest.getEmail().trim().isEmpty() || loginRequest.getPassword().trim().isEmpty()) {
+				throw new IllegalArgumentException("Email and password cannot be empty");
+			}
+
+			// Create admin object for authentication
+			Admin adminCredentials = new Admin();
+			adminCredentials.setEmail(loginRequest.getEmail());
+			adminCredentials.setPassword(loginRequest.getPassword());
+
+			Admin admin = adminService.loginAdmin(adminCredentials);
+			if (admin == null) {
+				throw new AdminAuthenticationException("Invalid email or password");
+			}
+
+			// Generate JWT token
+			String token = jwtUtil.generateToken(admin.getEmail());
+
+			// Set JWT as HttpOnly cookie
+			ResponseCookie cookie = ResponseCookie.from("admin_jwt", token)
+				.httpOnly(true)
+				.secure(false) // set to true in production (requires HTTPS)
+				.path("/")
+				.maxAge(24 * 60 * 60) // 1 day
+				.sameSite("Lax")
+				.build();
+			response.addHeader("Set-Cookie", cookie.toString());
+
+			// Create response DTO without password and without token in body
+			AdminResponseDTO adminResponse = new AdminResponseDTO(
+				admin.getId().longValue(),
+				admin.getEmail(),
+				admin.getName(),
+				admin.getRole()
+			);
+
+			return ResponseEntity.ok(adminResponse);
+		} catch (Exception e) {
+			throw new AdminAuthenticationException("Login failed: " + e.getMessage(), e);
+		}
 	}
-	
-	// insert Sessions in SessionOption table
+		// insert Sessions in SessionOption table
 	 @PostMapping("/sessions")
 	    public ResponseEntity<String> insertSession(@RequestBody SessionOptionDTO dto) {
-	        if (dto.getSessionOption() == null || dto.getSessionOption().trim().isEmpty()) {
-	            return ResponseEntity.badRequest().body("Session option is required.");
+	        try {
+	            if (dto == null || dto.getSessionOption() == null || dto.getSessionOption().trim().isEmpty()) {
+	                throw new IllegalArgumentException("Session option is required and cannot be empty");
+	            }
+
+	            String result = adminService.insertSession(dto.getSessionOption().trim());
+	            return ResponseEntity.ok(result);
+	        } catch (Exception e) {
+	            throw new DataProcessingException("Failed to insert session: " + e.getMessage(), e);
 	        }
-
-	        String result = adminService.insertSession(dto.getSessionOption().trim());
-	        return ResponseEntity.ok(result);
-	    }
-
-	    @PostMapping("/interested-in")
+	    }	    @PostMapping("/interested-in")
 	    public ResponseEntity<String> insertInterestedInOption(@RequestBody InterestedInOptionDTO dto) {
-	        if (dto.getInterestedInOption() == null || dto.getInterestedInOption().trim().isEmpty()) {
-	            return ResponseEntity.badRequest().body("Interested In option is required.");
-	        }
+	        try {
+	            if (dto == null || dto.getInterestedInOption() == null || dto.getInterestedInOption().trim().isEmpty()) {
+	                throw new IllegalArgumentException("Interested In option is required and cannot be empty");
+	            }
 
-	        adminService.insertInterestedInOption(dto.getInterestedInOption().trim());
-	        return ResponseEntity.ok("Interested In option inserted successfully.");
+	            adminService.insertInterestedInOption(dto.getInterestedInOption().trim());
+	            return ResponseEntity.ok("Interested In option inserted successfully.");
+	        } catch (Exception e) {
+	            throw new DataProcessingException("Failed to insert interested in option: " + e.getMessage(), e);
+	        }
 	    }
-	
-	// insert acoommodation in Accommodation table
+		// insert acoommodation in Accommodation table
 	@PostMapping("/api/admin/accommodation")
 	public ResponseEntity<String> insertAccommodation(@RequestBody Accommodation accommodation) {
-		if (accommodation == null) {
-			return ResponseEntity.badRequest().body("Accommodation  is required.");
+		try {
+			if (accommodation == null) {
+				throw new IllegalArgumentException("Accommodation is required");
+			}
+			
+			adminService.insertAccommodation(accommodation);
+			return ResponseEntity.ok("Accommodation inserted successfully.");
+		} catch (Exception e) {
+			throw new DataProcessingException("Failed to insert accommodation: " + e.getMessage(), e);
 		}
-		
-		adminService.insertAccommodation(accommodation);
-		return ResponseEntity.ok("Accommodation inserted successfully.");
 	}
 	@PostMapping("/api/admin/pricing-config")
 	public ResponseEntity<?> insertPricingConfig(@RequestBody PricingConfig config) {
@@ -174,31 +226,61 @@ public class AdminController {
 //
 //	    PricingConfig saved = adminService.insertPricingConfig(config, presentationTypeId, accommodationId);
 //	    return ResponseEntity.ok(saved);
-//	}
-	// get the prising config details by id
+//	}	// get the prising config details by id
 	@PostMapping("/api/admin/pricing-config/details/{id}")
     public ResponseEntity<?> getPricingConfigDetails(@RequestBody Long id) {
-		if (id == null) {
-			return ResponseEntity.badRequest().body("Pricing config ID is required.");
+		try {
+			if (id == null) {
+				throw new IllegalArgumentException("Pricing config ID is required");
+			}
+			
+			PricingConfig config = adminService.getPricingConfigById(id);
+			if (config == null) {
+				throw new ResourceNotFoundException("Pricing config not found with ID: " + id);
+			}
+			
+			return ResponseEntity.ok(config);
+		} catch (Exception e) {
+			throw new DataProcessingException("Failed to retrieve pricing config: " + e.getMessage(), e);
 		}
-		
-		PricingConfig config = adminService.getPricingConfigById(id);
-		if (config == null) {
-			return ResponseEntity.notFound().build();
-		}
-		
-		return ResponseEntity.ok(config);
-	}	
-	// get all registration forms
+	}	// get all registration forms
 	@PostMapping("/api/admin/registration-forms")
 	public ResponseEntity<?> getAllRegistrationForms() {
-		return ResponseEntity.ok(adminService.getAllRegistrationForms());
+		try {
+			return ResponseEntity.ok(adminService.getAllRegistrationForms());
+		} catch (Exception e) {
+			throw new DataProcessingException("Failed to retrieve registration forms: " + e.getMessage(), e);
+		}
 	}
 	
 	// get all abstract form submissions
 	@GetMapping("/api/admin/abstract-submissions")
 	public ResponseEntity<?> getAllAbstractSubmissions() {
-		return ResponseEntity.ok(adminService.getAllAbstractSubmissions());
+		try {
+			return ResponseEntity.ok(adminService.getAllAbstractSubmissions());
+		} catch (Exception e) {
+			throw new DataProcessingException("Failed to retrieve abstract submissions: " + e.getMessage(), e);
+		}
 	}
-
+	
+	// logout admin
+	@PostMapping("/api/admin/logout")
+	public ResponseEntity<String> logoutAdmin(HttpServletResponse response) {
+		try {
+			// Clear the JWT cookie
+			ResponseCookie cookie = ResponseCookie.from("admin_jwt", "")
+				.httpOnly(true)
+				.secure(false) // set to true in production
+				.path("/")
+				.maxAge(0) // immediately expire
+				.sameSite("Lax")
+				.build();
+			response.addHeader("Set-Cookie", cookie.toString());
+			
+			return ResponseEntity.ok("Logged out successfully");
+		} catch (Exception e) {
+			return ResponseEntity.status(500).body("Logout failed");
+		}
+	}
+	
 }
