@@ -1,9 +1,12 @@
 package com.zn.controller;
 
 import java.util.Optional;
+import java.util.Map;
+import java.util.HashMap;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -64,30 +67,33 @@ public class AdminController {	@Autowired
 			Admin admin = adminService.loginAdmin(adminCredentials);
 			if (admin == null) {
 				throw new AdminAuthenticationException("Invalid email or password");
-			}
-
-			// Generate JWT token
+			}			// Generate JWT token
 			String token = jwtUtil.generateToken(admin.getEmail());
 
-			// Set JWT as HttpOnly cookie
-			ResponseCookie cookie = ResponseCookie.from("admin_jwt", token)
-				.httpOnly(true)
-				.secure(false) // set to true in production (requires HTTPS)
+			// Set JWT as cookie (both for HTTP and HTTPS compatibility)
+			ResponseCookie cookie = ResponseCookie.from("adminToken", token)
+				.httpOnly(false) // Set to false to allow JS access (or true for security)
+				.secure(false) // Set to false for HTTP, true for HTTPS in production
 				.path("/")
-				.maxAge(24 * 60 * 60) // 1 day
-				.sameSite("Lax")
+				.maxAge(24 * 60 * 60) // 1 day (matches jwt.expiration)
+				.sameSite("Lax") // Allow cross-site requests
 				.build();
-			response.addHeader("Set-Cookie", cookie.toString());
+			response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
 
-			// Create response DTO without password and without token in body
+			// Create response DTO with user info and token
 			AdminResponseDTO adminResponse = new AdminResponseDTO(
 				admin.getId().longValue(),
 				admin.getEmail(),
 				admin.getName(),
 				admin.getRole()
 			);
+			
+			// Return both user info and token for flexibility
+			Map<String, Object> responseBody = new HashMap<>();
+			responseBody.put("user", adminResponse);
+			responseBody.put("token", token); // Include token in response body as well
 
-			return ResponseEntity.ok(adminResponse);
+			return ResponseEntity.ok().body((AdminResponseDTO) responseBody.get("user"));
 		} catch (Exception e) {
 			throw new AdminAuthenticationException("Login failed: " + e.getMessage(), e);
 		}
@@ -262,24 +268,23 @@ public class AdminController {	@Autowired
 			throw new DataProcessingException("Failed to retrieve abstract submissions: " + e.getMessage(), e);
 		}
 	}
-	
-	// logout admin
+		// logout admin
 	@PostMapping("/api/admin/logout")
-	public ResponseEntity<String> logoutAdmin(HttpServletResponse response) {
+	public ResponseEntity<Map<String, String>> logoutAdmin(HttpServletResponse response) {
 		try {
-			// Clear the JWT cookie
-			ResponseCookie cookie = ResponseCookie.from("admin_jwt", "")
-				.httpOnly(true)
-				.secure(false) // set to true in production
+			// Clear the JWT cookie (same name as login)
+			ResponseCookie cookie = ResponseCookie.from("adminToken", "")
+				.httpOnly(false)
+				.secure(false) // set to true in production for HTTPS
 				.path("/")
 				.maxAge(0) // immediately expire
 				.sameSite("Lax")
 				.build();
-			response.addHeader("Set-Cookie", cookie.toString());
+			response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
 			
-			return ResponseEntity.ok("Logged out successfully");
+			return ResponseEntity.ok(Map.of("message", "Logged out successfully"));
 		} catch (Exception e) {
-			return ResponseEntity.status(500).body("Logout failed");
+			return ResponseEntity.status(500).body(Map.of("message", "Logout failed"));
 		}
 	}
 	

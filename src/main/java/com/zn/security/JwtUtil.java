@@ -64,10 +64,23 @@ public class JwtUtil {
                 .setExpiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
-    }
-
-    public Boolean validateToken(String token, String username) {
+    }    public Boolean validateToken(String token, String username) {
         final String extractedUsername = extractUsername(token);
         return (extractedUsername.equals(username) && !isTokenExpired(token));
+    }
+    
+    // Overloaded method for backward compatibility
+    public Boolean validateToken(String token) {
+        try {
+            extractAllClaims(token);
+            return !isTokenExpired(token);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
+    // Method to get username from token (alias for extractUsername)
+    public String getUsernameFromToken(String token) {
+        return extractUsername(token);
     }
 }

@@ -40,13 +40,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
             jwt = authorizationHeader.substring(7);
             log.info("[JWT Filter] JWT found in Authorization header");
-        } 
-        // If no Authorization header, check cookies
+        }        // If no Authorization header, check cookies
         else if (request.getCookies() != null) {
             for (Cookie cookie : request.getCookies()) {
-                if ("admin_jwt".equals(cookie.getName())) {
+                if ("adminToken".equals(cookie.getName()) || 
+                    "admin_jwt".equals(cookie.getName()) ||
+                    "jwt".equals(cookie.getName()) ||
+                    "token".equals(cookie.getName())) {
                     jwt = cookie.getValue();
-                    log.info("[JWT Filter] JWT found in cookie");
+                    log.info("[JWT Filter] JWT found in cookie: {}", cookie.getName());
                     break;
                 }
             }
