@@ -1,5 +1,7 @@
 package com.zn.controller;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,9 +46,8 @@ public class AdminController {	@Autowired
 	private IAccommodationRepo accommodationRepository;
 	
 	@Autowired
-	private com.zn.repository.IPricingConfigRepository pricingConfigRepository;	// login admin
-	@PostMapping("/api/admin/login")
-	public ResponseEntity<AdminResponseDTO> loginAdmin(@RequestBody AdminLoginRequestDTO loginRequest, HttpServletResponse response) {
+	private com.zn.repository.IPricingConfigRepository pricingConfigRepository;	// login admin	@PostMapping("/api/admin/login")
+	public ResponseEntity<?> loginAdmin(@RequestBody AdminLoginRequestDTO loginRequest, HttpServletResponse response) {
 		try {
 			if (loginRequest == null || loginRequest.getEmail() == null || loginRequest.getPassword() == null) {
 				throw new IllegalArgumentException("Email and password are required");
@@ -65,27 +66,30 @@ public class AdminController {	@Autowired
 			if (admin == null) {
 				throw new AdminAuthenticationException("Invalid email or password");
 			}			// Generate JWT token with role
-			String token = jwtUtil.generateToken(admin.getEmail(), admin.getRole());
-
-			// Set JWT as HttpOnly cookie
+			String token = jwtUtil.generateToken(admin.getEmail(), admin.getRole());			// Set JWT as HttpOnly cookie with production-ready settings
 			ResponseCookie cookie = ResponseCookie.from("admin_jwt", token)
 				.httpOnly(true)
-				.secure(false) // set to true in production (requires HTTPS)
+				.secure(true) // Always true for production HTTPS
 				.path("/")
 				.maxAge(24 * 60 * 60) // 1 day
-				.sameSite("Lax")
+				.sameSite("None") // Required for cross-origin cookies
 				.build();
 			response.addHeader("Set-Cookie", cookie.toString());
 
-			// Create response DTO without password and without token in body
+			// Create response DTO with user info and token for production compatibility
 			AdminResponseDTO adminResponse = new AdminResponseDTO(
 				admin.getId().longValue(),
 				admin.getEmail(),
 				admin.getName(),
 				admin.getRole()
 			);
-
-			return ResponseEntity.ok(adminResponse);
+			
+			// Create response with both user data and token for production
+			Map<String, Object> responseBody = new HashMap<>();
+			responseBody.put("user", adminResponse);
+			responseBody.put("token", token); // Include token for production use
+			
+			return ResponseEntity.ok(responseBody);
 		} catch (Exception e) {
 			throw new AdminAuthenticationException("Login failed: " + e.getMessage(), e);
 		}
