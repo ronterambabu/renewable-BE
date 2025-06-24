@@ -54,13 +54,13 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {        http
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            .csrf(csrf -> csrf.disable())
+            .csrf().disable()
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers("/admin/api/admin/login", "/admin/api/admin/logout").permitAll()
-                .requestMatchers("/api/**").permitAll() // Allow public APIs
-                .requestMatchers("/admin/**").authenticated() // Require authentication for admin endpoints
+                .requestMatchers("/admin/**").hasRole("ADMIN")
                 .anyRequest().permitAll()
             )
             .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS); // Use JWT, not sessions
