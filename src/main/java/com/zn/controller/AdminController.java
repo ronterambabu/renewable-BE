@@ -64,10 +64,8 @@ public class AdminController {	@Autowired
 			Admin admin = adminService.loginAdmin(adminCredentials);
 			if (admin == null) {
 				throw new AdminAuthenticationException("Invalid email or password");
-			}
-
-			// Generate JWT token
-			String token = jwtUtil.generateToken(admin.getEmail());
+			}			// Generate JWT token with role
+			String token = jwtUtil.generateToken(admin.getEmail(), admin.getRole());
 
 			// Set JWT as HttpOnly cookie
 			ResponseCookie cookie = ResponseCookie.from("admin_jwt", token)

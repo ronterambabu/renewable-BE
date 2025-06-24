@@ -28,12 +28,11 @@ public class CustomUserDetailsService implements UserDetailsService {
         if (admin == null) {
             log.warn("Admin not found with email: {}", email);
             throw new UsernameNotFoundException("Admin not found with email: " + email);
-        }
-        log.info("Admin found: {} (role: {})", admin.getEmail(), admin.getRole());
+        }        log.info("Admin found: {} (role: {})", admin.getEmail(), admin.getRole());
         return User.builder()
                 .username(admin.getEmail())
                 .password(admin.getPassword()) // Password should be encoded
-                .authorities(Collections.singletonList(new SimpleGrantedAuthority("ROLE_ADMIN")))
+                .authorities(Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + admin.getRole())))
                 .build();
     }
 }
