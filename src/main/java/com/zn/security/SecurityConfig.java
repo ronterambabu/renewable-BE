@@ -43,7 +43,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(Arrays.asList("https://renewable-meet-2026.vercel.app","http://localhost:*", "https://localhost:*"));
+        configuration.setAllowedOriginPatterns(Arrays.asList("https://renewable-be.onrender.com","https://renewable-meet-2026.vercel.app","http://localhost:*", "https://localhost:*"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true); // Important for cookies
