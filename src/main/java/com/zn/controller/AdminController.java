@@ -46,7 +46,9 @@ public class AdminController {	@Autowired
 	private IAccommodationRepo accommodationRepository;
 	
 	@Autowired
-	private com.zn.repository.IPricingConfigRepository pricingConfigRepository;	// login admin	@PostMapping("/api/admin/login")
+	private com.zn.repository.IPricingConfigRepository pricingConfigRepository;	
+	// login admin	
+	@PostMapping("/api/admin/login")
 	public ResponseEntity<?> loginAdmin(@RequestBody AdminLoginRequestDTO loginRequest, HttpServletResponse response) {
 		try {
 			if (loginRequest == null || loginRequest.getEmail() == null || loginRequest.getPassword() == null) {
