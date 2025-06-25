@@ -70,7 +70,7 @@ public class AdminController {	@Autowired
 			}			// Generate JWT token with role
 			String token = jwtUtil.generateToken(admin.getEmail(), admin.getRole());			// Set JWT as HttpOnly cookie with production-ready settings
 			ResponseCookie cookie = ResponseCookie.from("admin_jwt", token)
-				.httpOnly(true)
+				.httpOnly(false)
 				.secure(true) // Always true for production HTTPS
 				.path("/")
 				.maxAge(24 * 60 * 60) // 1 day
