@@ -45,7 +45,9 @@ public class SecurityConfig {
             "https://renewable-meet-2026.vercel.app",
             "https://*.vercel.app", // Allow all Vercel subdomains
             "http://localhost:*", 
-            "https://localhost:*"
+            "https://localhost:*",
+            "https://stripe.zynmarketing.xyz"
+            
         ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
