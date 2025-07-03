@@ -492,58 +492,91 @@ public class StripeService {
     }
 
     private void handleCheckoutSessionCompleted(Event event) {
-        EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
-        if (dataObjectDeserializer.getObject().isPresent()) {
-            Session session = (Session) dataObjectDeserializer.getObject().get();
-            LocalDateTime completedTime = convertToLocalDateTime(session.getCreated());
-
-            log.info("✅ Payment successful for session: {} at {}", session.getId(), completedTime);
-            log.info("💳 Customer email: {}", session.getCustomerDetails() != null ?
-                    session.getCustomerDetails().getEmail() : "N/A");
-            log.info("💰 Amount total: {}", session.getAmountTotal());
-
-            // Update existing record instead of creating new one
-            try {
-                PaymentRecord existingRecord = paymentRecordRepository.findBySessionId(session.getId())
-                    .orElse(null);
+        log.info("🔄 Starting handleCheckoutSessionCompleted processing...");
+        
+        try {
+            // Try to get the Session object from the event
+            Object stripeObject = event.getData().getObject();
+            log.info("📋 Event data object type: {}", stripeObject.getClass().getSimpleName());
+            
+            if (stripeObject instanceof Session) {
+                Session session = (Session) stripeObject;
+                processCheckoutSessionCompleted(session);
+            } else {
+                log.error("❌ Event data object is not a Session! Type: {}", stripeObject.getClass().getName());
                 
-                if (existingRecord != null) {
-                    // Update existing record
-                    existingRecord.setPaymentIntentId(session.getPaymentIntent());
-                    existingRecord.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
-                    // Update customer email if it was null before
-                    if (existingRecord.getCustomerEmail() == null && session.getCustomerDetails() != null) {
-                        existingRecord.setCustomerEmail(session.getCustomerDetails().getEmail());
-                    }
+                // Try fallback with EventDataObjectDeserializer
+                EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+                if (dataObjectDeserializer.getObject().isPresent()) {
+                    Object deserializedObject = dataObjectDeserializer.getObject().get();
+                    log.info("🔄 Fallback deserialization successful. Type: {}", deserializedObject.getClass().getSimpleName());
                     
-                    paymentRecordRepository.save(existingRecord);
-                    log.info("💾 Updated PaymentRecord for session: {}", session.getId());
+                    if (deserializedObject instanceof Session) {
+                        Session session = (Session) deserializedObject;
+                        log.info("✅ Successfully retrieved Session via fallback: {}", session.getId());
+                        processCheckoutSessionCompleted(session);
+                    }
                 } else {
-                    // Create new record if it doesn't exist (fallback)
-                    log.warn("⚠️ PaymentRecord not found for session {}, creating new one", session.getId());
-                    PaymentRecord record = PaymentRecord.builder()
-                            .sessionId(session.getId())
-                            .paymentIntentId(session.getPaymentIntent())
-                            .customerEmail(session.getCustomerDetails() != null ? session.getCustomerDetails().getEmail() : null)
-                            .amountTotal(session.getAmountTotal() != null ? 
-                                BigDecimal.valueOf(session.getAmountTotal()).divide(BigDecimal.valueOf(100)) : null) // Convert cents to euros
-                            .currency(session.getCurrency())
-                            .status(PaymentRecord.PaymentStatus.COMPLETED)
-                            .stripeCreatedAt(completedTime)
-                            .stripeExpiresAt(convertToLocalDateTime(session.getExpiresAt()))
-                            .paymentStatus(session.getPaymentStatus())
-                            .build();
-
-                    paymentRecordRepository.save(record);
-                    log.info("💾 Created new PaymentRecord for session: {}", session.getId());
+                    log.error("❌ Both direct and fallback deserialization failed for checkout.session.completed");
                 }
+            }
+        } catch (Exception e) {
+            log.error("❌ Error in handleCheckoutSessionCompleted: {}", e.getMessage(), e);
+        }
+        
+        log.info("✅ Completed handleCheckoutSessionCompleted processing");
+    }
+    
+    /**
+     * Process checkout session completed logic (extracted for reuse)
+     */
+    private void processCheckoutSessionCompleted(Session session) {
+        LocalDateTime completedTime = convertToLocalDateTime(session.getCreated());
 
-            } catch (Exception e) {
-                log.error("❌ Failed to update PaymentRecord: {}", e.getMessage(), e);
+        log.info("✅ Payment successful for session: {} at {}", session.getId(), completedTime);
+        log.info("💳 Customer email: {}", session.getCustomerDetails() != null ?
+                session.getCustomerDetails().getEmail() : "N/A");
+        log.info("💰 Amount total: {}", session.getAmountTotal());
+
+        // Update existing record instead of creating new one
+        try {
+            PaymentRecord existingRecord = paymentRecordRepository.findBySessionId(session.getId())
+                .orElse(null);
+            
+            if (existingRecord != null) {
+                // Update existing record
+                existingRecord.setPaymentIntentId(session.getPaymentIntent());
+                existingRecord.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
+                // Update customer email if it was null before
+                if (existingRecord.getCustomerEmail() == null && session.getCustomerDetails() != null) {
+                    existingRecord.setCustomerEmail(session.getCustomerDetails().getEmail());
+                }
+                
+                paymentRecordRepository.save(existingRecord);
+                log.info("💾 ✅ Updated PaymentRecord ID: {} for session: {} to COMPLETED status", 
+                        existingRecord.getId(), session.getId());
+            } else {
+                // Create new record if it doesn't exist (fallback)
+                log.warn("⚠️ PaymentRecord not found for session {}, creating new one", session.getId());
+                PaymentRecord record = PaymentRecord.builder()
+                        .sessionId(session.getId())
+                        .paymentIntentId(session.getPaymentIntent())
+                        .customerEmail(session.getCustomerDetails() != null ? session.getCustomerDetails().getEmail() : null)
+                        .amountTotal(session.getAmountTotal() != null ? 
+                            BigDecimal.valueOf(session.getAmountTotal()).divide(BigDecimal.valueOf(100)) : null) // Convert cents to euros
+                        .currency(session.getCurrency())
+                        .status(PaymentRecord.PaymentStatus.COMPLETED)
+                        .stripeCreatedAt(completedTime)
+                        .stripeExpiresAt(convertToLocalDateTime(session.getExpiresAt()))
+                        .paymentStatus(session.getPaymentStatus())
+                        .build();
+
+                paymentRecordRepository.save(record);
+                log.info("💾 ✅ Created new PaymentRecord ID: {} for session: {}", record.getId(), session.getId());
             }
 
-        } else {
-            log.warn("⚠️ Event data object deserialization failed");
+        } catch (Exception e) {
+            log.error("❌ Failed to update PaymentRecord for session {}: {}", session.getId(), e.getMessage(), e);
         }
     }
 
@@ -553,12 +586,14 @@ public class StripeService {
      */
     private void handlePaymentIntentSucceeded(Event event) {
         log.info("🔄 Starting handlePaymentIntentSucceeded processing...");
-        EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
         
-        if (dataObjectDeserializer.getObject().isPresent()) {
-            try {
-                // Get PaymentIntent from the event
-                com.stripe.model.PaymentIntent paymentIntent = (com.stripe.model.PaymentIntent) dataObjectDeserializer.getObject().get();
+        try {
+            // Try to get the PaymentIntent object from the event
+            Object stripeObject = event.getData().getObject();
+            log.info("📋 Event data object type: {}", stripeObject.getClass().getSimpleName());
+            
+            if (stripeObject instanceof com.stripe.model.PaymentIntent) {
+                com.stripe.model.PaymentIntent paymentIntent = (com.stripe.model.PaymentIntent) stripeObject;
                 
                 log.info("✅ Payment Intent succeeded: {} for amount: {} {}", 
                         paymentIntent.getId(), 
@@ -589,14 +624,65 @@ public class StripeService {
                     }
                 }
                 
-            } catch (Exception e) {
-                log.error("❌ Failed to process payment_intent.succeeded: {}", e.getMessage(), e);
+            } else {
+                log.error("❌ Event data object is not a PaymentIntent! Type: {}", stripeObject.getClass().getName());
+                
+                // Try fallback with EventDataObjectDeserializer
+                EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+                if (dataObjectDeserializer.getObject().isPresent()) {
+                    Object deserializedObject = dataObjectDeserializer.getObject().get();
+                    log.info("🔄 Fallback deserialization successful. Type: {}", deserializedObject.getClass().getSimpleName());
+                    
+                    if (deserializedObject instanceof com.stripe.model.PaymentIntent) {
+                        com.stripe.model.PaymentIntent paymentIntent = (com.stripe.model.PaymentIntent) deserializedObject;
+                        log.info("✅ Successfully retrieved PaymentIntent via fallback: {}", paymentIntent.getId());
+                        
+                        // Process the payment intent
+                        processPaymentIntentUpdate(paymentIntent);
+                    }
+                } else {
+                    log.error("❌ Both direct and fallback deserialization failed");
+                }
             }
-        } else {
-            log.warn("⚠️ Event data object deserialization failed for payment_intent.succeeded");
+                
+        } catch (Exception e) {
+            log.error("❌ Failed to process payment_intent.succeeded: {}", e.getMessage(), e);
         }
         
         log.info("✅ Completed handlePaymentIntentSucceeded processing");
+    }
+    
+    /**
+     * Process PaymentIntent update logic (extracted for reuse)
+     */
+    private void processPaymentIntentUpdate(com.stripe.model.PaymentIntent paymentIntent) {
+        try {
+            // First, try to find PaymentRecord by payment intent ID
+            PaymentRecord existingRecord = paymentRecordRepository.findByPaymentIntentId(paymentIntent.getId())
+                .orElse(null);
+            
+            if (existingRecord != null) {
+                log.info("📋 Found existing PaymentRecord by payment intent ID: {}", existingRecord.getId());
+                updateExistingPaymentRecord(existingRecord, paymentIntent);
+            } else {
+                log.info("🔍 No PaymentRecord found by payment intent ID, searching for PENDING records...");
+                
+                // Look for PENDING records and update the most suitable one
+                List<PaymentRecord> pendingRecords = paymentRecordRepository.findByStatus(PaymentRecord.PaymentStatus.PENDING);
+                log.info("📊 Found {} PENDING PaymentRecord(s)", pendingRecords.size());
+                
+                if (!pendingRecords.isEmpty()) {
+                    // Find the best matching pending record (by amount if possible)
+                    PaymentRecord recordToUpdate = findBestMatchingPendingRecord(pendingRecords, paymentIntent);
+                    updatePendingPaymentRecord(recordToUpdate, paymentIntent);
+                } else {
+                    log.warn("⚠️ No PENDING PaymentRecord found, creating new record");
+                    createNewPaymentRecord(paymentIntent);
+                }
+            }
+        } catch (Exception e) {
+            log.error("❌ Error in processPaymentIntentUpdate: {}", e.getMessage(), e);
+        }
     }
     
     /**
