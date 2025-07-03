@@ -7,6 +7,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -465,8 +466,10 @@ public class StripeService {
         
         switch (event.getType()) {
             case "checkout.session.completed" -> handleCheckoutSessionCompleted(event);
-            // Add more event type handlers here as needed
-            default -> log.info("Unhandled event type: {}", event.getType());
+            case "payment_intent.succeeded" -> handlePaymentIntentSucceeded(event);
+            case "payment_intent.payment_failed" -> handlePaymentIntentFailed(event);
+            case "checkout.session.expired" -> handleCheckoutSessionExpired(event);
+            default -> log.info("Unhandled event type: {} - No action taken", event.getType());
         }
     }
 
@@ -523,6 +526,148 @@ public class StripeService {
 
         } else {
             log.warn("⚠️ Event data object deserialization failed");
+        }
+    }
+
+    /**
+     * Handle payment_intent.succeeded webhook event
+     * This fires when the payment is successfully processed
+     */
+    private void handlePaymentIntentSucceeded(Event event) {
+        EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+        if (dataObjectDeserializer.getObject().isPresent()) {
+            try {
+                // Get PaymentIntent from the event
+                com.stripe.model.PaymentIntent paymentIntent = (com.stripe.model.PaymentIntent) dataObjectDeserializer.getObject().get();
+                
+                log.info("✅ Payment Intent succeeded: {} for amount: {} {}", 
+                        paymentIntent.getId(), 
+                        paymentIntent.getAmount() != null ? BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100)) : "unknown",
+                        paymentIntent.getCurrency());
+                
+                // Try to find PaymentRecord by payment intent ID first
+                PaymentRecord existingRecord = paymentRecordRepository.findByPaymentIntentId(paymentIntent.getId())
+                    .orElse(null);
+                
+                if (existingRecord != null) {
+                    // Update existing record to COMPLETED status
+                    existingRecord.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
+                    existingRecord.setPaymentIntentId(paymentIntent.getId());
+                    
+                    // Update amount and currency if they were null
+                    if (existingRecord.getAmountTotal() == null && paymentIntent.getAmount() != null) {
+                        existingRecord.setAmountTotal(BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100)));
+                    }
+                    if (existingRecord.getCurrency() == null) {
+                        existingRecord.setCurrency(paymentIntent.getCurrency());
+                    }
+                    
+                    paymentRecordRepository.save(existingRecord);
+                    log.info("💾 Updated PaymentRecord for payment intent: {} to COMPLETED status", paymentIntent.getId());
+                } else {
+                    // If not found by payment intent ID, look for PENDING records and update the first one
+                    // This handles cases where the record exists but payment intent ID wasn't set yet
+                    List<PaymentRecord> pendingRecords = paymentRecordRepository.findByStatus(PaymentRecord.PaymentStatus.PENDING);
+                    
+                    if (!pendingRecords.isEmpty()) {
+                        // Update the most recent pending record
+                        PaymentRecord recordToUpdate = pendingRecords.get(0);
+                        recordToUpdate.setPaymentIntentId(paymentIntent.getId());
+                        recordToUpdate.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
+                        
+                        // Update amount if needed
+                        if (paymentIntent.getAmount() != null) {
+                            BigDecimal actualAmount = BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100));
+                            if (recordToUpdate.getAmountTotal() == null || !recordToUpdate.getAmountTotal().equals(actualAmount)) {
+                                recordToUpdate.setAmountTotal(actualAmount);
+                            }
+                        }
+                        
+                        paymentRecordRepository.save(recordToUpdate);
+                        log.info("💾 Updated pending PaymentRecord (ID: {}) for payment intent: {} to COMPLETED status", 
+                                recordToUpdate.getId(), paymentIntent.getId());
+                    } else {
+                        log.warn("⚠️ No PaymentRecord found for payment intent: {} - creating new record", paymentIntent.getId());
+                        
+                        // Create new record as fallback
+                        PaymentRecord newRecord = PaymentRecord.builder()
+                                .paymentIntentId(paymentIntent.getId())
+                                .amountTotal(paymentIntent.getAmount() != null ? 
+                                    BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100)) : null)
+                                .currency(paymentIntent.getCurrency())
+                                .status(PaymentRecord.PaymentStatus.COMPLETED)
+                                .build();
+                        
+                        paymentRecordRepository.save(newRecord);
+                        log.info("💾 Created new PaymentRecord for payment intent: {}", paymentIntent.getId());
+                    }
+                }
+                
+            } catch (Exception e) {
+                log.error("❌ Failed to process payment_intent.succeeded: {}", e.getMessage(), e);
+            }
+        } else {
+            log.warn("⚠️ Event data object deserialization failed for payment_intent.succeeded");
+        }
+    }
+
+    /**
+     * Handle payment_intent.payment_failed webhook event
+     */
+    private void handlePaymentIntentFailed(Event event) {
+        EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+        if (dataObjectDeserializer.getObject().isPresent()) {
+            try {
+                com.stripe.model.PaymentIntent paymentIntent = (com.stripe.model.PaymentIntent) dataObjectDeserializer.getObject().get();
+                
+                log.warn("❌ Payment Intent failed: {} - Reason: {}", 
+                        paymentIntent.getId(), 
+                        paymentIntent.getLastPaymentError() != null ? paymentIntent.getLastPaymentError().getMessage() : "Unknown");
+                
+                // Update PaymentRecord to FAILED status
+                PaymentRecord existingRecord = paymentRecordRepository.findByPaymentIntentId(paymentIntent.getId())
+                    .orElse(null);
+                
+                if (existingRecord != null) {
+                    existingRecord.setStatus(PaymentRecord.PaymentStatus.FAILED);
+                    paymentRecordRepository.save(existingRecord);
+                    log.info("💾 Updated PaymentRecord for payment intent: {} to FAILED status", paymentIntent.getId());
+                } else {
+                    log.warn("⚠️ PaymentRecord not found for failed payment intent: {}", paymentIntent.getId());
+                }
+                
+            } catch (Exception e) {
+                log.error("❌ Failed to process payment_intent.payment_failed: {}", e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Handle checkout.session.expired webhook event
+     */
+    private void handleCheckoutSessionExpired(Event event) {
+        EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+        if (dataObjectDeserializer.getObject().isPresent()) {
+            try {
+                Session session = (Session) dataObjectDeserializer.getObject().get();
+                
+                log.warn("⏰ Checkout session expired: {}", session.getId());
+                
+                // Update PaymentRecord to EXPIRED status
+                PaymentRecord existingRecord = paymentRecordRepository.findBySessionId(session.getId())
+                    .orElse(null);
+                
+                if (existingRecord != null) {
+                    existingRecord.setStatus(PaymentRecord.PaymentStatus.EXPIRED);
+                    paymentRecordRepository.save(existingRecord);
+                    log.info("💾 Updated PaymentRecord for session: {} to EXPIRED status", session.getId());
+                } else {
+                    log.warn("⚠️ PaymentRecord not found for expired session: {}", session.getId());
+                }
+                
+            } catch (Exception e) {
+                log.error("❌ Failed to process checkout.session.expired: {}", e.getMessage(), e);
+            }
         }
     }
 
