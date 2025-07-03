@@ -82,7 +82,10 @@ public class StripeService {
         PaymentResponseDTO responseDTO = new PaymentResponseDTO();
         responseDTO.setSessionId(session.getId());
         responseDTO.setUrl(session.getUrl()); // Add the checkout URL
-        responseDTO.setPaymentStatus(session.getPaymentStatus());
+        
+        // Map payment status properly - if session shows "paid", use it; otherwise default appropriately
+        String stripePaymentStatus = session.getPaymentStatus();
+        responseDTO.setPaymentStatus(stripePaymentStatus != null ? stripePaymentStatus : "unpaid");
         
         // Convert timestamps to LocalDateTime
         LocalDateTime createdTime = convertToLocalDateTime(session.getCreated());
@@ -97,6 +100,8 @@ public class StripeService {
             responseDTO.setProductName(session.getMetadata().get("productName"));
         }
         
+        log.info("✅ Mapped session to response DTO with paymentStatus: {}", responseDTO.getPaymentStatus());
+        
         return responseDTO;
     }
 
@@ -109,7 +114,8 @@ public class StripeService {
         // Map Stripe session information
         responseDTO.setSessionId(session.getId());
         responseDTO.setUrl(session.getUrl());
-        responseDTO.setPaymentStatus(session.getPaymentStatus());
+        // Use paymentStatus from database record instead of session (database has the updated value)
+        responseDTO.setPaymentStatus(paymentRecord.getPaymentStatus());
         responseDTO.setStripeCreatedAt(convertToLocalDateTime(session.getCreated()));
         responseDTO.setStripeExpiresAt(convertToLocalDateTime(session.getExpiresAt()));
         
@@ -135,8 +141,8 @@ public class StripeService {
             responseDTO.setProductName(session.getMetadata().get("productName"));
         }
         
-        log.info("✅ Created complete response DTO with DB ID: {} and session ID: {}", 
-                paymentRecord.getId(), session.getId());
+        log.info("✅ Created complete response DTO with DB ID: {} and session ID: {} with paymentStatus: {}", 
+                paymentRecord.getId(), session.getId(), paymentRecord.getPaymentStatus());
         
         return responseDTO;
     }
@@ -535,8 +541,10 @@ public class StripeService {
 
         log.info("✅ Payment successful for session: {} at {}", session.getId(), completedTime);
         log.info("💳 Customer email: {}", session.getCustomerDetails() != null ?
-                session.getCustomerDetails().getEmail() : "N/A");
+                session.getCustomerDetails().getEmail() : session.getCustomerEmail());
         log.info("💰 Amount total: {}", session.getAmountTotal());
+        log.info("💳 Payment Status from Stripe: {}", session.getPaymentStatus());
+        log.info("📋 Session Status from Stripe: {}", session.getStatus());
 
         // Update existing record instead of creating new one
         try {
@@ -544,35 +552,48 @@ public class StripeService {
                 .orElse(null);
             
             if (existingRecord != null) {
-                // Update existing record
+                // Update existing record with actual Stripe values
                 existingRecord.setPaymentIntentId(session.getPaymentIntent());
                 existingRecord.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
+                
+                // Use actual payment status from Stripe webhook (should be "paid")
+                String stripePaymentStatus = session.getPaymentStatus();
+                existingRecord.setPaymentStatus(stripePaymentStatus != null ? stripePaymentStatus : "paid");
+                
                 // Update customer email if it was null before
-                if (existingRecord.getCustomerEmail() == null && session.getCustomerDetails() != null) {
-                    existingRecord.setCustomerEmail(session.getCustomerDetails().getEmail());
+                String customerEmail = session.getCustomerDetails() != null ? 
+                    session.getCustomerDetails().getEmail() : session.getCustomerEmail();
+                if (existingRecord.getCustomerEmail() == null && customerEmail != null) {
+                    existingRecord.setCustomerEmail(customerEmail);
                 }
                 
                 paymentRecordRepository.save(existingRecord);
-                log.info("💾 ✅ Updated PaymentRecord ID: {} for session: {} to COMPLETED status", 
-                        existingRecord.getId(), session.getId());
+                log.info("💾 ✅ Updated PaymentRecord ID: {} for session: {} to COMPLETED status with paymentStatus '{}'", 
+                        existingRecord.getId(), session.getId(), existingRecord.getPaymentStatus());
             } else {
                 // Create new record if it doesn't exist (fallback)
                 log.warn("⚠️ PaymentRecord not found for session {}, creating new one", session.getId());
+                
+                String customerEmail = session.getCustomerDetails() != null ? 
+                    session.getCustomerDetails().getEmail() : session.getCustomerEmail();
+                String stripePaymentStatus = session.getPaymentStatus();
+                
                 PaymentRecord record = PaymentRecord.builder()
                         .sessionId(session.getId())
                         .paymentIntentId(session.getPaymentIntent())
-                        .customerEmail(session.getCustomerDetails() != null ? session.getCustomerDetails().getEmail() : null)
+                        .customerEmail(customerEmail)
                         .amountTotal(session.getAmountTotal() != null ? 
                             BigDecimal.valueOf(session.getAmountTotal()).divide(BigDecimal.valueOf(100)) : null) // Convert cents to euros
                         .currency(session.getCurrency())
                         .status(PaymentRecord.PaymentStatus.COMPLETED)
                         .stripeCreatedAt(completedTime)
                         .stripeExpiresAt(convertToLocalDateTime(session.getExpiresAt()))
-                        .paymentStatus(session.getPaymentStatus())
+                        .paymentStatus(stripePaymentStatus != null ? stripePaymentStatus : "paid") // Use actual Stripe payment status
                         .build();
 
                 paymentRecordRepository.save(record);
-                log.info("💾 ✅ Created new PaymentRecord ID: {} for session: {}", record.getId(), session.getId());
+                log.info("💾 ✅ Created new PaymentRecord ID: {} for session: {} with paymentStatus '{}'", 
+                        record.getId(), session.getId(), record.getPaymentStatus());
             }
 
         } catch (Exception e) {
@@ -693,6 +714,7 @@ public class StripeService {
         
         record.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
         record.setPaymentIntentId(paymentIntent.getId());
+        record.setPaymentStatus("paid"); // Set Stripe payment status to "paid"
         
         // Update amount and currency if needed
         if (record.getAmountTotal() == null && paymentIntent.getAmount() != null) {
@@ -706,7 +728,7 @@ public class StripeService {
         }
         
         paymentRecordRepository.save(record);
-        log.info("💾 ✅ Successfully updated existing PaymentRecord ID: {} to COMPLETED status", record.getId());
+        log.info("💾 ✅ Successfully updated existing PaymentRecord ID: {} to COMPLETED status with paymentStatus 'paid'", record.getId());
     }
     
     /**
@@ -739,6 +761,7 @@ public class StripeService {
         
         record.setPaymentIntentId(paymentIntent.getId());
         record.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
+        record.setPaymentStatus("paid"); // Set Stripe payment status to "paid"
         
         // Update amount if needed or if it doesn't match
         if (paymentIntent.getAmount() != null) {
@@ -755,7 +778,7 @@ public class StripeService {
         }
         
         paymentRecordRepository.save(record);
-        log.info("💾 ✅ Successfully updated PENDING PaymentRecord ID: {} to COMPLETED status", record.getId());
+        log.info("💾 ✅ Successfully updated PENDING PaymentRecord ID: {} to COMPLETED status with paymentStatus 'paid'", record.getId());
     }
     
     /**
@@ -770,10 +793,12 @@ public class StripeService {
                     BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100)) : null)
                 .currency(paymentIntent.getCurrency() != null ? paymentIntent.getCurrency() : "eur")
                 .status(PaymentRecord.PaymentStatus.COMPLETED)
+                .paymentStatus("paid") // Set Stripe payment status to "paid"
+                .stripeCreatedAt(convertToLocalDateTime(paymentIntent.getCreated()))
                 .build();
         
         paymentRecordRepository.save(newRecord);
-        log.info("💾 ✅ Created new PaymentRecord ID: {} for payment intent: {}", newRecord.getId(), paymentIntent.getId());
+        log.info("💾 ✅ Created new PaymentRecord ID: {} for payment intent: {} with paymentStatus 'paid'", newRecord.getId(), paymentIntent.getId());
     }
 
     /**
@@ -795,8 +820,9 @@ public class StripeService {
                 
                 if (existingRecord != null) {
                     existingRecord.setStatus(PaymentRecord.PaymentStatus.FAILED);
+                    existingRecord.setPaymentStatus("failed"); // Set Stripe payment status to "failed"
                     paymentRecordRepository.save(existingRecord);
-                    log.info("💾 Updated PaymentRecord for payment intent: {} to FAILED status", paymentIntent.getId());
+                    log.info("💾 Updated PaymentRecord for payment intent: {} to FAILED status with paymentStatus 'failed'", paymentIntent.getId());
                 } else {
                     log.warn("⚠️ PaymentRecord not found for failed payment intent: {}", paymentIntent.getId());
                 }
@@ -824,8 +850,9 @@ public class StripeService {
                 
                 if (existingRecord != null) {
                     existingRecord.setStatus(PaymentRecord.PaymentStatus.EXPIRED);
+                    existingRecord.setPaymentStatus("expired"); // Set Stripe payment status to "expired"
                     paymentRecordRepository.save(existingRecord);
-                    log.info("💾 Updated PaymentRecord for session: {} to EXPIRED status", session.getId());
+                    log.info("💾 Updated PaymentRecord for session: {} to EXPIRED status with paymentStatus 'expired'", session.getId());
                 } else {
                     log.warn("⚠️ PaymentRecord not found for expired session: {}", session.getId());
                 }

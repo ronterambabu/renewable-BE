@@ -95,6 +95,11 @@ public class PaymentRecord {
             status = PaymentStatus.PENDING;
         }
         
+        // Set default paymentStatus if not provided
+        if (paymentStatus == null) {
+            paymentStatus = "unpaid"; // Default Stripe payment status for new records
+        }
+        
         // Validate amount matches pricing config if available
         validateAmountWithPricingConfig();
     }
@@ -144,7 +149,7 @@ public class PaymentRecord {
                 .currency(currency)
                 .stripeCreatedAt(stripeCreatedAt)
                 .stripeExpiresAt(stripeExpiresAt)
-                .paymentStatus(paymentStatus)
+                .paymentStatus(paymentStatus != null ? paymentStatus : "unpaid") // Default to "unpaid" if null
                 .status(PaymentStatus.PENDING)
                 .build();
     }
@@ -165,7 +170,7 @@ public class PaymentRecord {
                 .currency(currency)
                 .stripeCreatedAt(stripeCreatedAt)
                 .stripeExpiresAt(stripeExpiresAt)
-                .paymentStatus(paymentStatus)
+                .paymentStatus(paymentStatus != null ? paymentStatus : "unpaid") // Default to "unpaid" if null
                 .pricingConfig(pricingConfig)
                 .status(PaymentStatus.PENDING)
                 .build();
@@ -186,20 +191,53 @@ public class PaymentRecord {
     public void updateFromStripeEvent(String paymentIntentId, String eventStatus) {
         this.paymentIntentId = paymentIntentId;
         
-        // Map Stripe event status to our enum
+        // Map Stripe event status to our enum and set paymentStatus accordingly
         switch (eventStatus.toLowerCase()) {
             case "complete":
             case "paid":
                 this.status = PaymentStatus.COMPLETED;
+                this.paymentStatus = "paid";
                 break;
             case "expired":
                 this.status = PaymentStatus.EXPIRED;
+                this.paymentStatus = "expired";
                 break;
             case "canceled":
+            case "cancelled":
                 this.status = PaymentStatus.CANCELLED;
+                this.paymentStatus = "canceled";
                 break;
+            case "failed":
+                this.status = PaymentStatus.FAILED;
+                this.paymentStatus = "failed";
+                break;
+            case "pending":
+            case "unpaid":
             default:
                 this.status = PaymentStatus.PENDING;
+                this.paymentStatus = "unpaid";
+        }
+    }
+    
+    // Method to update from Stripe session data (for checkout.session.completed events)
+    public void updateFromStripeSession(String paymentIntentId, String sessionStatus, String paymentStatus) {
+        this.paymentIntentId = paymentIntentId;
+        this.paymentStatus = paymentStatus != null ? paymentStatus : "unpaid";
+        
+        // Map Stripe session status to our enum
+        if ("complete".equals(sessionStatus) && "paid".equals(paymentStatus)) {
+            this.status = PaymentStatus.COMPLETED;
+        } else if ("expired".equals(sessionStatus)) {
+            this.status = PaymentStatus.EXPIRED;
+            this.paymentStatus = "expired";
+        } else if ("canceled".equals(sessionStatus)) {
+            this.status = PaymentStatus.CANCELLED;
+            this.paymentStatus = "canceled";
+        } else {
+            this.status = PaymentStatus.PENDING;
+            if (this.paymentStatus == null || this.paymentStatus.isEmpty()) {
+                this.paymentStatus = "unpaid";
+            }
         }
     }
 
@@ -215,6 +253,18 @@ public class PaymentRecord {
     public boolean isExpired() {
         return status == PaymentStatus.EXPIRED || 
                (stripeExpiresAt != null && stripeExpiresAt.isBefore(LocalDateTime.now()));
+    }
+    
+    public boolean isPaid() {
+        return "paid".equals(paymentStatus);
+    }
+    
+    public boolean isUnpaid() {
+        return "unpaid".equals(paymentStatus);
+    }
+    
+    public boolean isPaymentFailed() {
+        return "failed".equals(paymentStatus);
     }
 
     // Format amount for display (already in euros)
