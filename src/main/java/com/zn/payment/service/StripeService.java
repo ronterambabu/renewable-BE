@@ -538,7 +538,7 @@ public class StripeService {
         log.info("🔄 Starting handleCheckoutSessionCompleted processing...");
         
         try {
-            // Use EventDataObjectDeserializer instead of deprecated getObject()
+            // First try the modern approach with EventDataObjectDeserializer
             EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
             if (dataObjectDeserializer.getObject().isPresent()) {
                 Object deserializedObject = dataObjectDeserializer.getObject().get();
@@ -552,6 +552,7 @@ public class StripeService {
                 }
             } else {
                 log.error("❌ Failed to deserialize checkout.session.completed event data");
+                log.error("❌ Event deserialization failed - unable to process checkout session completion");
             }
         } catch (Exception e) {
             log.error("❌ Error in handleCheckoutSessionCompleted: {}", e.getMessage(), e);
@@ -569,9 +570,10 @@ public class StripeService {
         log.info("✅ Payment successful for session: {} at {}", session.getId(), completedTime);
         log.info("💳 Customer email: {}", session.getCustomerDetails() != null ?
                 session.getCustomerDetails().getEmail() : session.getCustomerEmail());
-        log.info("💰 Amount total: {}", session.getAmountTotal());
+        log.info("💰 Amount total: {} cents", session.getAmountTotal());
         log.info("💳 Payment Status from Stripe: {}", session.getPaymentStatus());
         log.info("📋 Session Status from Stripe: {}", session.getStatus());
+        log.info("🔗 Payment Intent ID: {}", session.getPaymentIntent());
 
         // Update existing record instead of creating new one
         try {
@@ -579,6 +581,8 @@ public class StripeService {
                 .orElse(null);
             
             if (paymentRecord != null) {
+                log.info("📋 Found existing PaymentRecord ID: {} for session: {}", paymentRecord.getId(), session.getId());
+                
                 // Update existing record with actual Stripe values
                 paymentRecord.setPaymentIntentId(session.getPaymentIntent());
                 paymentRecord.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
@@ -594,15 +598,18 @@ public class StripeService {
                     paymentRecord.setCustomerEmail(customerEmail);
                 }
                 
-                paymentRecordRepository.save(paymentRecord);
+                PaymentRecord savedRecord = paymentRecordRepository.save(paymentRecord);
                 log.info("💾 ✅ Updated PaymentRecord ID: {} for session: {} to COMPLETED status with paymentStatus '{}'", 
-                        paymentRecord.getId(), session.getId(), paymentRecord.getPaymentStatus());
+                        savedRecord.getId(), session.getId(), savedRecord.getPaymentStatus());
+                
+                // Log the current state for debugging
+                log.info("🔍 PaymentRecord state after update: ID={}, Status={}, PaymentStatus={}, PaymentIntentId={}", 
+                        savedRecord.getId(), savedRecord.getStatus(), savedRecord.getPaymentStatus(), savedRecord.getPaymentIntentId());
                 
                 // 🚀 Auto-register user after successful payment
-                autoRegisterUserAfterPayment(paymentRecord, session);
+                autoRegisterUserAfterPayment(savedRecord, session);
                 
             } else {
-                // Create new record if it doesn't exist (fallback)
                 log.warn("⚠️ PaymentRecord not found for session {}, creating new one", session.getId());
                 
                 String customerEmail = session.getCustomerDetails() != null ? 
@@ -622,16 +629,15 @@ public class StripeService {
                         .paymentStatus(stripePaymentStatus != null ? stripePaymentStatus : "paid") // Use actual Stripe payment status
                         .build();
 
-                paymentRecordRepository.save(record);
+                PaymentRecord savedRecord = paymentRecordRepository.save(record);
                 log.info("💾 ✅ Created new PaymentRecord ID: {} for session: {} with paymentStatus '{}'", 
-                        record.getId(), session.getId(), record.getPaymentStatus());
+                        savedRecord.getId(), session.getId(), savedRecord.getPaymentStatus());
                 
                 // 🚀 Auto-register user after successful payment
-                autoRegisterUserAfterPayment(record, session);
+                autoRegisterUserAfterPayment(savedRecord, session);
             }
-
         } catch (Exception e) {
-            log.error("❌ Failed to update PaymentRecord for session {}: {}", session.getId(), e.getMessage(), e);
+            log.error("❌ Error updating PaymentRecord for session {}: {}", session.getId(), e.getMessage(), e);
         }
     }
 
