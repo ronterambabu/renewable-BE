@@ -957,72 +957,58 @@ public class StripeService {
      * Automatically create a RegistrationForm after successful payment
      * This method is called from webhook processing after payment completion
      */
+    /**
+     * Link the existing RegistrationForm (created during session creation) to the PaymentRecord
+     * after successful payment. This replaces the auto-registration logic since the form
+     * is now created upfront with all user data.
+     */
     private void autoRegisterUserAfterPayment(PaymentRecord paymentRecord, Session session) {
-        log.info("🔄 Starting auto-registration for payment record ID: {}", paymentRecord.getId());
+        log.info("🔄 Linking existing registration form to payment record ID: {}", paymentRecord.getId());
         
         try {
-            // Extract customer details from session and payment record
+            // Find the existing registration form by customer email
             String customerEmail = paymentRecord.getCustomerEmail();
             if (customerEmail == null && session.getCustomerDetails() != null) {
                 customerEmail = session.getCustomerDetails().getEmail();
             }
             
             if (customerEmail == null) {
-                log.warn("⚠️ Cannot auto-register: customer email not found for payment record ID: {}", paymentRecord.getId());
+                log.warn("⚠️ Cannot link registration: customer email not found for payment record ID: {}", paymentRecord.getId());
                 return;
             }
             
-            // Check if pricing config is available
-            if (paymentRecord.getPricingConfig() == null) {
-                log.warn("⚠️ Cannot auto-register: no pricing config linked to payment record ID: {}", paymentRecord.getId());
+            // Find the most recent registration form for this customer email
+            // (since we created it during session creation)
+            RegistrationForm existingRegistration = registrationFormRepository.findTopByEmailOrderByIdDesc(customerEmail);
+            
+            if (existingRegistration == null) {
+                log.warn("⚠️ No existing registration form found for email: {} (payment record ID: {})", 
+                        customerEmail, paymentRecord.getId());
                 return;
             }
             
-            // Extract customer name and details from session metadata if available
-            String customerName = null;
-            String customerPhone = null;
-            String customerInstitute = null;
-            String customerCountry = null;
-            
-            if (session.getMetadata() != null) {
-                customerName = session.getMetadata().get("customerName");
-                customerPhone = session.getMetadata().get("customerPhone");
-                customerInstitute = session.getMetadata().get("customerInstitute");
-                customerCountry = session.getMetadata().get("customerCountry");
+            // Check if this registration form is already linked to a payment record
+            if (existingRegistration.getPaymentRecord() != null) {
+                log.warn("⚠️ Registration form ID: {} is already linked to payment record ID: {}", 
+                        existingRegistration.getId(), existingRegistration.getPaymentRecord().getId());
+                return;
             }
             
-            // Create RegistrationForm object
-            RegistrationForm registrationForm = new RegistrationForm();
-            registrationForm.setEmail(customerEmail);
-            registrationForm.setName(customerName != null ? customerName : "Auto-registered from payment");
-            registrationForm.setPhone(customerPhone != null ? customerPhone : ""); // Will be updated by user later
-            registrationForm.setInstituteOrUniversity(customerInstitute != null ? customerInstitute : ""); // Will be updated by user later
-            registrationForm.setCountry(customerCountry != null ? customerCountry : ""); // Will be updated by user later
-            registrationForm.setPricingConfig(paymentRecord.getPricingConfig());
-            registrationForm.setAmountPaid(paymentRecord.getAmountTotal());
             // Set up the bidirectional one-to-one relationship
-            registrationForm.setPaymentRecord(paymentRecord);
-            paymentRecord.setRegistrationForm(registrationForm);
+            existingRegistration.setPaymentRecord(paymentRecord);
+            paymentRecord.setRegistrationForm(existingRegistration);
             
-            log.info("� Saving RegistrationForm: email={}, pricingConfigId={}, amount={}", 
-                    customerEmail, paymentRecord.getPricingConfig().getId(), paymentRecord.getAmountTotal());
-            
-            // Save the registration form first (this will cascade to update the payment record)
-            RegistrationForm savedRegistration = registrationFormRepository.save(registrationForm);
-            
-            // Also save the payment record to ensure the relationship is persisted on both sides
+            // Save both entities to ensure the relationship is persisted
+            registrationFormRepository.save(existingRegistration);
             paymentRecordRepository.save(paymentRecord);
             
-            log.info("✅ Auto-registration successful! Created registration ID: {} for payment record ID: {}", 
-                    savedRegistration.getId(), paymentRecord.getId());
-            
-            log.info("🔗 Established bidirectional relationship between PaymentRecord ID: {} and RegistrationForm ID: {}", 
-                    paymentRecord.getId(), savedRegistration.getId());
+            log.info("✅ Successfully linked existing registration form ID: {} to payment record ID: {}", 
+                    existingRegistration.getId(), paymentRecord.getId());
             
         } catch (Exception e) {
-            log.error("❌ Error during auto-registration for payment record ID {}: {}", 
+            log.error("❌ Error linking registration form to payment record ID {}: {}", 
                     paymentRecord.getId(), e.getMessage(), e);
-            // Don't throw exception here - webhook processing should continue even if registration fails
+            // Don't throw exception here - webhook processing should continue even if linking fails
         }
     }
 }

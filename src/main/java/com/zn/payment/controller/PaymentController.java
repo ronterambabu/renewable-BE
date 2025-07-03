@@ -18,10 +18,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
+import com.zn.entity.RegistrationForm;
+import com.zn.entity.PricingConfig;
 import com.zn.payment.dto.CheckoutRequest;
 import com.zn.payment.dto.PaymentResponseDTO;
 import com.zn.payment.entity.PaymentRecord.PaymentStatus;
 import com.zn.payment.service.StripeService;
+import com.zn.repository.IRegistrationFormRepository;
+import com.zn.repository.IPricingConfigRepository;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +37,12 @@ public class PaymentController {
 
     @Autowired
     private StripeService stripeService;
+    
+    @Autowired
+    private IRegistrationFormRepository registrationFormRepository;
+    
+    @Autowired
+    private IPricingConfigRepository pricingConfigRepository;
 
     @PostMapping("/create-checkout-session")
     public ResponseEntity<PaymentResponseDTO> createCheckoutSession(@RequestBody CheckoutRequest request, @RequestParam Long pricingConfigId) {
@@ -96,6 +106,26 @@ public class PaymentController {
             PaymentResponseDTO response = stripeService.createCheckoutSessionWithPricingValidation(request, pricingConfigId);
             
             log.info("Checkout session created successfully with pricing validation. Session ID: {}", response.getSessionId());
+            
+            // Get the pricing config to link to the registration form
+            PricingConfig pricingConfig = pricingConfigRepository.findById(pricingConfigId)
+                    .orElseThrow(() -> new IllegalArgumentException("Pricing config not found with ID: " + pricingConfigId));
+            
+            // Create registration form entity and save to database immediately
+            RegistrationForm registrationForm = new RegistrationForm();
+            registrationForm.setName(request.getCustomerName() != null ? request.getCustomerName() : "");
+            registrationForm.setPhone(request.getCustomerPhone() != null ? request.getCustomerPhone() : "");
+            registrationForm.setEmail(request.getCustomerEmail());
+            registrationForm.setInstituteOrUniversity(request.getCustomerInstitute() != null ? request.getCustomerInstitute() : "");
+            registrationForm.setCountry(request.getCustomerCountry() != null ? request.getCustomerCountry() : "");
+            registrationForm.setPricingConfig(pricingConfig);
+            registrationForm.setAmountPaid(pricingConfig.getTotalPrice()); // Set the amount paid from pricing config
+            
+            // Save the registration form to database
+            RegistrationForm savedRegistration = registrationFormRepository.save(registrationForm);
+            log.info("✅ Registration form created and saved with ID: {} for session: {}", 
+                    savedRegistration.getId(), response.getSessionId());
+            
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
             log.error("Validation error creating checkout session: {}", e.getMessage());
