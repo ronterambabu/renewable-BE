@@ -78,6 +78,10 @@ public class PaymentRecord {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "pricing_config_id")
     private PricingConfig pricingConfig;
+    
+    // Relationship to RegistrationForm (optional - set after auto-registration)
+    @Column(name = "registration_form_id")
+    private Long registrationFormId;
 
     // TODO: Add AccommodationMetadata relationship after fixing compilation issues
     // @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL)

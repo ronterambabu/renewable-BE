@@ -20,4 +20,9 @@ public class CheckoutRequest {
     private String customerEmail;
     private Long pricingConfigId; // Required for price validation
     
+    // Additional customer details for auto-registration
+    private String customerName;
+    private String customerPhone;
+    private String customerInstitute;
+    private String customerCountry;
 }

@@ -23,11 +23,13 @@ import com.stripe.model.checkout.Session;
 import com.stripe.net.Webhook;
 import com.stripe.param.checkout.SessionCreateParams;
 import com.zn.entity.PricingConfig;
+import com.zn.entity.RegistrationForm;
 import com.zn.payment.dto.CheckoutRequest;
 import com.zn.payment.dto.PaymentResponseDTO;
 import com.zn.payment.entity.PaymentRecord;
 import com.zn.payment.repository.PaymentRecordRepository;
 import com.zn.repository.IPricingConfigRepository;
+import com.zn.repository.IRegistrationFormRepository;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -79,6 +81,9 @@ public class StripeService {
     
     @Autowired
     private IPricingConfigRepository pricingConfigRepository;
+    
+    @Autowired
+    private IRegistrationFormRepository registrationFormRepository;
     
     private LocalDateTime convertToLocalDateTime(Long timestamp) {
         if (timestamp == null) return null;
@@ -169,6 +174,20 @@ public class StripeService {
         metadata.put("productName", request.getProductName());
         if (request.getOrderReference() != null) {
             metadata.put("orderReference", request.getOrderReference());
+        }
+        
+        // Store customer details for auto-registration
+        if (request.getCustomerName() != null) {
+            metadata.put("customerName", request.getCustomerName());
+        }
+        if (request.getCustomerPhone() != null) {
+            metadata.put("customerPhone", request.getCustomerPhone());
+        }
+        if (request.getCustomerInstitute() != null) {
+            metadata.put("customerInstitute", request.getCustomerInstitute());
+        }
+        if (request.getCustomerCountry() != null) {
+            metadata.put("customerCountry", request.getCustomerCountry());
         }
 
         // Set expiration time (US Eastern)
@@ -270,6 +289,34 @@ public class StripeService {
         metadata.put("pricingConfigId", pricingConfig.getId().toString());
         if (request.getOrderReference() != null) {
             metadata.put("orderReference", request.getOrderReference());
+        }
+        
+        // Store customer details for auto-registration
+        if (request.getCustomerName() != null) {
+            metadata.put("customerName", request.getCustomerName());
+        }
+        if (request.getCustomerPhone() != null) {
+            metadata.put("customerPhone", request.getCustomerPhone());
+        }
+        if (request.getCustomerInstitute() != null) {
+            metadata.put("customerInstitute", request.getCustomerInstitute());
+        }
+        if (request.getCustomerCountry() != null) {
+            metadata.put("customerCountry", request.getCustomerCountry());
+        }
+        
+        // Store customer details for auto-registration
+        if (request.getCustomerName() != null) {
+            metadata.put("customerName", request.getCustomerName());
+        }
+        if (request.getCustomerPhone() != null) {
+            metadata.put("customerPhone", request.getCustomerPhone());
+        }
+        if (request.getCustomerInstitute() != null) {
+            metadata.put("customerInstitute", request.getCustomerInstitute());
+        }
+        if (request.getCustomerCountry() != null) {
+            metadata.put("customerCountry", request.getCustomerCountry());
         }
 
         // Set expiration time (US Eastern)
@@ -539,28 +586,32 @@ public class StripeService {
 
         // Update existing record instead of creating new one
         try {
-            PaymentRecord existingRecord = paymentRecordRepository.findBySessionId(session.getId())
+            PaymentRecord paymentRecord = paymentRecordRepository.findBySessionId(session.getId())
                 .orElse(null);
             
-            if (existingRecord != null) {
+            if (paymentRecord != null) {
                 // Update existing record with actual Stripe values
-                existingRecord.setPaymentIntentId(session.getPaymentIntent());
-                existingRecord.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
+                paymentRecord.setPaymentIntentId(session.getPaymentIntent());
+                paymentRecord.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
                 
                 // Use actual payment status from Stripe webhook (should be "paid")
                 String stripePaymentStatus = session.getPaymentStatus();
-                existingRecord.setPaymentStatus(stripePaymentStatus != null ? stripePaymentStatus : "paid");
+                paymentRecord.setPaymentStatus(stripePaymentStatus != null ? stripePaymentStatus : "paid");
                 
                 // Update customer email if it was null before
                 String customerEmail = session.getCustomerDetails() != null ? 
                     session.getCustomerDetails().getEmail() : session.getCustomerEmail();
-                if (existingRecord.getCustomerEmail() == null && customerEmail != null) {
-                    existingRecord.setCustomerEmail(customerEmail);
+                if (paymentRecord.getCustomerEmail() == null && customerEmail != null) {
+                    paymentRecord.setCustomerEmail(customerEmail);
                 }
                 
-                paymentRecordRepository.save(existingRecord);
+                paymentRecordRepository.save(paymentRecord);
                 log.info("💾 ✅ Updated PaymentRecord ID: {} for session: {} to COMPLETED status with paymentStatus '{}'", 
-                        existingRecord.getId(), session.getId(), existingRecord.getPaymentStatus());
+                        paymentRecord.getId(), session.getId(), paymentRecord.getPaymentStatus());
+                
+                // 🚀 Auto-register user after successful payment
+                autoRegisterUserAfterPayment(paymentRecord, session);
+                
             } else {
                 // Create new record if it doesn't exist (fallback)
                 log.warn("⚠️ PaymentRecord not found for session {}, creating new one", session.getId());
@@ -585,6 +636,9 @@ public class StripeService {
                 paymentRecordRepository.save(record);
                 log.info("💾 ✅ Created new PaymentRecord ID: {} for session: {} with paymentStatus '{}'", 
                         record.getId(), session.getId(), record.getPaymentStatus());
+                
+                // 🚀 Auto-register user after successful payment
+                autoRegisterUserAfterPayment(record, session);
             }
 
         } catch (Exception e) {
@@ -896,6 +950,78 @@ public class StripeService {
             throw new IllegalArgumentException(
                 String.format("Currency must be 'eur' - only Euro payments are supported. Received: '%s'. All amounts must be in euros and will be displayed in euros in the Stripe dashboard.", 
                 request.getCurrency()));
+        }
+    }
+    
+    /**
+     * Automatically create a RegistrationForm after successful payment
+     * This method is called from webhook processing after payment completion
+     */
+    private void autoRegisterUserAfterPayment(PaymentRecord paymentRecord, Session session) {
+        log.info("🔄 Starting auto-registration for payment record ID: {}", paymentRecord.getId());
+        
+        try {
+            // Extract customer details from session and payment record
+            String customerEmail = paymentRecord.getCustomerEmail();
+            if (customerEmail == null && session.getCustomerDetails() != null) {
+                customerEmail = session.getCustomerDetails().getEmail();
+            }
+            
+            if (customerEmail == null) {
+                log.warn("⚠️ Cannot auto-register: customer email not found for payment record ID: {}", paymentRecord.getId());
+                return;
+            }
+            
+            // Check if pricing config is available
+            if (paymentRecord.getPricingConfig() == null) {
+                log.warn("⚠️ Cannot auto-register: no pricing config linked to payment record ID: {}", paymentRecord.getId());
+                return;
+            }
+            
+            // Extract customer name and details from session metadata if available
+            String customerName = null;
+            String customerPhone = null;
+            String customerInstitute = null;
+            String customerCountry = null;
+            
+            if (session.getMetadata() != null) {
+                customerName = session.getMetadata().get("customerName");
+                customerPhone = session.getMetadata().get("customerPhone");
+                customerInstitute = session.getMetadata().get("customerInstitute");
+                customerCountry = session.getMetadata().get("customerCountry");
+            }
+            
+            // Create RegistrationForm object
+            RegistrationForm registrationForm = new RegistrationForm();
+            registrationForm.setEmail(customerEmail);
+            registrationForm.setName(customerName != null ? customerName : "Auto-registered from payment");
+            registrationForm.setPhone(customerPhone != null ? customerPhone : ""); // Will be updated by user later
+            registrationForm.setInstituteOrUniversity(customerInstitute != null ? customerInstitute : ""); // Will be updated by user later
+            registrationForm.setCountry(customerCountry != null ? customerCountry : ""); // Will be updated by user later
+            registrationForm.setPricingConfig(paymentRecord.getPricingConfig());
+            registrationForm.setAmountPaid(paymentRecord.getAmountTotal());
+            registrationForm.setPaymentRecordId(paymentRecord.getId()); // Link to payment record
+            
+            log.info("� Saving RegistrationForm: email={}, pricingConfigId={}, amount={}", 
+                    customerEmail, paymentRecord.getPricingConfig().getId(), paymentRecord.getAmountTotal());
+            
+            // Save directly using repository
+            RegistrationForm savedRegistration = registrationFormRepository.save(registrationForm);
+            
+            log.info("✅ Auto-registration successful! Created registration ID: {} for payment record ID: {}", 
+                    savedRegistration.getId(), paymentRecord.getId());
+            
+            // Update payment record with registration reference
+            paymentRecord.setRegistrationFormId(savedRegistration.getId());
+            paymentRecordRepository.save(paymentRecord);
+            
+            log.info("🔗 Linked PaymentRecord ID: {} with RegistrationForm ID: {}", 
+                    paymentRecord.getId(), savedRegistration.getId());
+            
+        } catch (Exception e) {
+            log.error("❌ Error during auto-registration for payment record ID {}: {}", 
+                    paymentRecord.getId(), e.getMessage(), e);
+            // Don't throw exception here - webhook processing should continue even if registration fails
         }
     }
 }

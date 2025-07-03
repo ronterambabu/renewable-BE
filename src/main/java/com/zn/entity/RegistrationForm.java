@@ -31,4 +31,8 @@ public class RegistrationForm {
 
     @Column(nullable = false)
     private BigDecimal amountPaid; // snapshot of totalPrice at registration time
+    
+    // Reference to the PaymentRecord that triggered this registration
+    @Column(name = "payment_record_id")
+    private Long paymentRecordId;
 }
