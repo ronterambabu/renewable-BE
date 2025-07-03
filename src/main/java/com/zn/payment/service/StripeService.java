@@ -438,7 +438,26 @@ public class StripeService {
 
     public Event constructWebhookEvent(String payload, String sigHeader) throws SignatureVerificationException {
         log.debug("Constructing webhook event from payload with signature");
-        return Webhook.constructEvent(payload, sigHeader, endpointSecret);
+        
+        if (endpointSecret == null || endpointSecret.trim().isEmpty()) {
+            log.error("❌ Webhook endpoint secret is not configured! Check your STRIPE_WEBHOOK_SECRET environment variable");
+            throw new SignatureVerificationException("Webhook endpoint secret is not configured", sigHeader);
+        }
+        
+        if (!endpointSecret.startsWith("whsec_")) {
+            log.error("❌ Invalid webhook secret format! Webhook secrets should start with 'whsec_'. Current: {}", 
+                    endpointSecret.substring(0, Math.min(10, endpointSecret.length())) + "...");
+            throw new SignatureVerificationException("Invalid webhook secret format", sigHeader);
+        }
+        
+        try {
+            log.info("✅ Using webhook secret: {}...", endpointSecret.substring(0, Math.min(10, endpointSecret.length())));
+            return Webhook.constructEvent(payload, sigHeader, endpointSecret);
+        } catch (SignatureVerificationException e) {
+            log.error("❌ Signature verification failed. Payload length: {}, Signature: {}, Secret prefix: {}", 
+                    payload.length(), sigHeader, endpointSecret.substring(0, Math.min(10, endpointSecret.length())));
+            throw e;
+        }
     }
 
     public void processWebhookEvent(Event event) {

@@ -153,14 +153,26 @@ public class PaymentController {
         }
         
         String sigHeader = request.getHeader("Stripe-Signature");
+        log.info("Webhook payload length: {}, Signature header present: {}", 
+                payload.length(), sigHeader != null);
+        
+        if (sigHeader == null || sigHeader.isEmpty()) {
+            log.error("⚠️ Missing Stripe-Signature header");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Missing signature header");
+        }
         
         try {
             Event event = stripeService.constructWebhookEvent(payload, sigHeader);
+            log.info("✅ Webhook signature verified successfully. Event type: {}", event.getType());
             stripeService.processWebhookEvent(event);
             return ResponseEntity.ok().body("Webhook processed successfully");
         } catch (SignatureVerificationException e) {
             log.error("⚠️ Webhook signature verification failed: {}", e.getMessage());
+            log.error("Payload length: {}, Signature header: {}", payload.length(), sigHeader);
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Signature verification failed");
+        } catch (Exception e) {
+            log.error("❌ Error processing webhook: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Webhook processing failed");
         }
     }
 }
