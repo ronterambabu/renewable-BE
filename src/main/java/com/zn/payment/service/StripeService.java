@@ -45,7 +45,8 @@ import lombok.extern.slf4j.Slf4j;
  * 
  * Currency Policy:
  * - Only "eur" currency is accepted in all checkout requests
- * - Unit amounts in requests should be in euro cents (e.g., 4500 = €45.00)
+ * - Unit amounts in requests come in euros (e.g., 45.00) and are converted to cents by the controller
+ * - Stripe API receives amounts in cents (e.g., 4500 = €45.00)
  * - Database stores amounts in euros (e.g., 45.00)
  * - Stripe dashboard will display all payments in euros
  * - Payment reports and statistics show euro values
@@ -94,6 +95,47 @@ public class StripeService {
             responseDTO.setCustomerName(session.getMetadata().get("customerName"));
             responseDTO.setProductName(session.getMetadata().get("productName"));
         }
+        
+        return responseDTO;
+    }
+
+    /**
+     * Create complete response DTO with both Stripe session and database record information
+     */
+    public PaymentResponseDTO createCompleteResponseDTO(Session session, PaymentRecord paymentRecord) {
+        PaymentResponseDTO responseDTO = new PaymentResponseDTO();
+        
+        // Map Stripe session information
+        responseDTO.setSessionId(session.getId());
+        responseDTO.setUrl(session.getUrl());
+        responseDTO.setPaymentStatus(session.getPaymentStatus());
+        responseDTO.setStripeCreatedAt(convertToLocalDateTime(session.getCreated()));
+        responseDTO.setStripeExpiresAt(convertToLocalDateTime(session.getExpiresAt()));
+        
+        // Map database record information
+        responseDTO.setId(paymentRecord.getId());
+        responseDTO.setCustomerEmail(paymentRecord.getCustomerEmail());
+        responseDTO.setAmountTotalEuros(paymentRecord.getAmountTotal());
+        responseDTO.setAmountTotalCents(paymentRecord.getAmountTotal().multiply(BigDecimal.valueOf(100)).longValue());
+        responseDTO.setCurrency(paymentRecord.getCurrency());
+        responseDTO.setStatus(paymentRecord.getStatus());
+        responseDTO.setCreatedAt(paymentRecord.getCreatedAt());
+        responseDTO.setUpdatedAt(paymentRecord.getUpdatedAt());
+        
+        // Map pricing config information if available
+        if (paymentRecord.getPricingConfig() != null) {
+            responseDTO.setPricingConfigId(paymentRecord.getPricingConfig().getId());
+            responseDTO.setPricingConfigTotalPrice(paymentRecord.getPricingConfig().getTotalPrice());
+        }
+        
+        // Map other fields from session metadata if available
+        if (session.getMetadata() != null) {
+            responseDTO.setCustomerName(session.getMetadata().get("customerName"));
+            responseDTO.setProductName(session.getMetadata().get("productName"));
+        }
+        
+        log.info("✅ Created complete response DTO with DB ID: {} and session ID: {}", 
+                paymentRecord.getId(), session.getId());
         
         return responseDTO;
     }
@@ -174,6 +216,31 @@ public class StripeService {
         throw e;
     }
 }
+
+    /**
+     * Create checkout session without pricing config validation
+     * Only validates EUR currency and creates session directly
+     */
+    public PaymentResponseDTO createCheckoutSessionWithoutPricingValidation(CheckoutRequest request) throws StripeException {
+        log.info("Creating checkout session without pricing validation for product: {}", request.getProductName());
+        
+        // Validate EUR currency
+        validateEuroCurrency(request);
+        
+        // Create Stripe session using existing method
+        Session session = createDetailedCheckoutSession(request);
+        
+        // Fetch the saved PaymentRecord from database
+        PaymentRecord paymentRecord = paymentRecordRepository.findBySessionId(session.getId())
+            .orElseThrow(() -> new RuntimeException("PaymentRecord not found after creation for session: " + session.getId()));
+        
+        // Create complete response DTO with both Stripe and DB information
+        PaymentResponseDTO response = createCompleteResponseDTO(session, paymentRecord);
+        log.info("✅ Checkout session created without pricing validation: {} with DB ID: {}", 
+                session.getId(), paymentRecord.getId());
+        
+        return response;
+    }
 
     /**
      * Create checkout session with pricing config validation
@@ -307,9 +374,64 @@ public class StripeService {
         // 5. Create Stripe session with validated amounts
         Session session = createCheckoutSessionWithPricing(request, pricingConfig);
         
-        // 6. Return response DTO with checkout URL
-        PaymentResponseDTO response = mapSessionToResponceDTO(session);
-        log.info("✅ Validated checkout session created: {}", session.getId());
+        // 6. Fetch the saved PaymentRecord from database
+        PaymentRecord paymentRecord = paymentRecordRepository.findBySessionId(session.getId())
+            .orElseThrow(() -> new RuntimeException("PaymentRecord not found after creation for session: " + session.getId()));
+        
+        // 7. Create complete response DTO with both Stripe and DB information
+        PaymentResponseDTO response = createCompleteResponseDTO(session, paymentRecord);
+        log.info("✅ Validated checkout session created: {} with DB ID: {}", session.getId(), paymentRecord.getId());
+        
+        return response;
+    }
+
+    /**
+     * Create checkout session with pricing config ID validation
+     * Fetches pricing config by ID and validates amount matches exactly
+     */
+    public PaymentResponseDTO createCheckoutSessionWithPricingValidation(CheckoutRequest request, Long pricingConfigId) throws StripeException {
+        log.info("Creating checkout session with pricing config ID: {}", pricingConfigId);
+        
+        // 1. Validate currency is EUR
+        validateEuroCurrency(request);
+        
+        // 2. Fetch pricing config by ID
+        PricingConfig pricingConfig = pricingConfigRepository.findById(pricingConfigId)
+            .orElseThrow(() -> new IllegalArgumentException("Pricing config not found with ID: " + pricingConfigId));
+        
+        log.info("Found pricing config with total price: {} EUR", pricingConfig.getTotalPrice());
+        
+        // 3. Validate unitAmount matches pricing config
+        // Note: request.getUnitAmount() is already in cents (converted by controller)
+        // pricingConfig.getTotalPrice() is in euros, so convert to cents for comparison
+        Long expectedTotalInCents = pricingConfig.getTotalPrice().multiply(BigDecimal.valueOf(100)).longValue();
+        Long requestedTotalInCents = request.getUnitAmount() * request.getQuantity();
+        
+        if (!expectedTotalInCents.equals(requestedTotalInCents)) {
+            BigDecimal expectedEuros = pricingConfig.getTotalPrice();
+            BigDecimal requestedEuros = BigDecimal.valueOf(requestedTotalInCents).divide(BigDecimal.valueOf(100));
+            
+            log.error("Payment amount validation failed. Expected: {} cents ({} EUR), Requested: {} cents ({} EUR)", 
+                     expectedTotalInCents, expectedEuros, 
+                     requestedTotalInCents, requestedEuros);
+            throw new IllegalArgumentException(
+                String.format("Payment amount mismatch. Expected: %s EUR, but received: %s EUR", 
+                            expectedEuros, requestedEuros));
+        }
+        
+        log.info("✅ Amount validation passed: {} EUR", pricingConfig.getTotalPrice());
+        
+        // 4. Create Stripe session using the existing method
+        Session session = createCheckoutSessionWithPricing(request, pricingConfig);
+        
+        // 5. Fetch the saved PaymentRecord from database
+        PaymentRecord paymentRecord = paymentRecordRepository.findBySessionId(session.getId())
+            .orElseThrow(() -> new RuntimeException("PaymentRecord not found after creation for session: " + session.getId()));
+        
+        // 6. Create complete response DTO with both Stripe and DB information
+        PaymentResponseDTO response = createCompleteResponseDTO(session, paymentRecord);
+        log.info("✅ Checkout session created with pricing validation: {} with DB ID: {}", 
+                session.getId(), paymentRecord.getId());
         
         return response;
     }

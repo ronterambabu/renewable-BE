@@ -13,11 +13,11 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
-import com.stripe.model.checkout.Session;
 import com.zn.payment.dto.CheckoutRequest;
 import com.zn.payment.dto.PaymentResponseDTO;
 import com.zn.payment.entity.PaymentRecord.PaymentStatus;
@@ -35,25 +35,75 @@ public class PaymentController {
     private StripeService stripeService;
 
     @PostMapping("/create-checkout-session")
-    public ResponseEntity<PaymentResponseDTO> createCheckoutSession(@RequestBody CheckoutRequest request) {
+    public ResponseEntity<PaymentResponseDTO> createCheckoutSession(@RequestBody CheckoutRequest request, @RequestParam(required = false) Long pricingConfigId) {
         log.info("Received request to create checkout session: {}", request);
         
-        // Check if pricingConfigId is provided for validation
-        if (request.getPricingConfigId() != null) {
-            // Use validated checkout for requests with pricing config
-            return createValidatedCheckoutSession(request);
+        // Validate incoming request currency is EUR only
+        if (request.getCurrency() == null) {
+            request.setCurrency("eur"); // Default to EUR if not provided
+            log.info("Currency not provided, defaulting to EUR");
+        } else if (!"eur".equalsIgnoreCase(request.getCurrency())) {
+            log.error("Invalid currency provided: {}. Only EUR is supported", request.getCurrency());
+            PaymentResponseDTO errorResponse = new PaymentResponseDTO();
+            errorResponse.setStatus(PaymentStatus.FAILED);
+            errorResponse.setPaymentStatus("invalid_currency_only_eur_supported");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(errorResponse);
         }
         
-        // Fallback to legacy method for backwards compatibility
+        // Validate required fields for EUR payment (amounts come in euros, not cents)
+        if (request.getUnitAmount() == null || request.getUnitAmount() <= 0) {
+            log.error("Invalid unitAmount: {}. Must be positive value in euros", request.getUnitAmount());
+            PaymentResponseDTO errorResponse = new PaymentResponseDTO();
+            errorResponse.setStatus(PaymentStatus.FAILED);
+            errorResponse.setPaymentStatus("invalid_amount_must_be_positive_euros");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(errorResponse);
+        }
+        
+        if (request.getQuantity() == null || request.getQuantity() <= 0) {
+            log.error("Invalid quantity: {}. Must be positive value", request.getQuantity());
+            PaymentResponseDTO errorResponse = new PaymentResponseDTO();
+            errorResponse.setStatus(PaymentStatus.FAILED);
+            errorResponse.setPaymentStatus("invalid_quantity_must_be_positive");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(errorResponse);
+        }
+        
+        // Convert euro amounts to cents for Stripe API (Stripe expects cents)
+        Long unitAmountInCents = (long) (request.getUnitAmount() * 100);
+        request.setUnitAmount(unitAmountInCents); // Convert euros to cents
+        
+        log.info("✅ Request validation passed: {} EUR converted to {} cents, quantity: {}", 
+                request.getUnitAmount() / 100.0, request.getUnitAmount(), request.getQuantity());
+         
+        // If pricingConfigId is provided as request parameter, set it in the request object
+        if (pricingConfigId != null) {
+            request.setPricingConfigId(pricingConfigId);
+            log.info("Setting pricingConfigId from request param: {}", pricingConfigId);
+        }
+        
         try {
-            // Get complete session details from service
-            Session session = stripeService.createDetailedCheckoutSession(request);
+            PaymentResponseDTO response;
             
-            // Use service method to map session to DTO with proper timestamp conversion
-            PaymentResponseDTO response = stripeService.mapSessionToResponceDTO(session);
+            // If pricingConfigId is provided, use pricing validation method
+            if (pricingConfigId != null) {
+                // Call service method that fetches pricing config and validates amount
+                response = stripeService.createCheckoutSessionWithPricingValidation(request, pricingConfigId);
+            } else {
+                // For requests without pricing config, use standard EUR validation only
+                response = stripeService.createCheckoutSessionWithoutPricingValidation(request);
+            }
             
-            log.info("Checkout session created successfully. Session ID: {}", session.getId());
+            log.info("Checkout session created successfully. Session ID: {}", response.getSessionId());
             return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            log.error("Validation error creating checkout session: {}", e.getMessage());
+            PaymentResponseDTO errorResponse = new PaymentResponseDTO();
+            errorResponse.setStatus(PaymentStatus.FAILED);
+            errorResponse.setPaymentStatus("validation_failed");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(errorResponse);
         } catch (Exception e) {
             log.error("Error creating checkout session: {}", e.getMessage(), e);
             PaymentResponseDTO errorResponse = new PaymentResponseDTO();
@@ -111,32 +161,6 @@ public class PaymentController {
         } catch (SignatureVerificationException e) {
             log.error("⚠️ Webhook signature verification failed: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Signature verification failed");
-        }
-    }
-
-    @PostMapping("/create-validated-checkout-session")
-    public ResponseEntity<PaymentResponseDTO> createValidatedCheckoutSession(@RequestBody CheckoutRequest request) {
-        log.info("Received request to create validated checkout session: {}", request);
-        try {
-            // Use validated checkout session creation with pricing config validation
-            PaymentResponseDTO response = stripeService.createValidatedCheckoutSession(request);
-            
-            log.info("Validated checkout session created successfully. Session ID: {}", response.getSessionId());
-            return ResponseEntity.ok(response);
-        } catch (IllegalArgumentException e) {
-            log.error("Validation error creating checkout session: {}", e.getMessage());
-            PaymentResponseDTO errorResponse = new PaymentResponseDTO();
-            errorResponse.setStatus(PaymentStatus.FAILED);
-            errorResponse.setPaymentStatus("validation_failed");
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(errorResponse);
-        } catch (Exception e) {
-            log.error("Error creating validated checkout session: {}", e.getMessage(), e);
-            PaymentResponseDTO errorResponse = new PaymentResponseDTO();
-            errorResponse.setStatus(PaymentStatus.FAILED);
-            errorResponse.setPaymentStatus("failed");
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(errorResponse);
         }
     }
 }
