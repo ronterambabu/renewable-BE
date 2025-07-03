@@ -13,6 +13,7 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.stripe.Stripe;
 import com.stripe.exception.SignatureVerificationException;
@@ -913,9 +914,16 @@ public class StripeService {
      * is now created upfront with all user data.
      */
     private void autoRegisterUserAfterPayment(PaymentRecord paymentRecord, Session session) {
-        log.info("🔄 Linking existing registration form to payment record ID: {}", paymentRecord.getId());
+        log.info("🔄 Verifying association between registration form and payment record ID: {}", paymentRecord.getId());
         
         try {
+            // Check if the payment record already has a registration form associated
+            if (paymentRecord.getRegistrationForm() != null) {
+                log.info("✅ Payment record ID: {} already has registration form ID: {} associated", 
+                        paymentRecord.getId(), paymentRecord.getRegistrationForm().getId());
+                return;
+            }
+            
             // Find the existing registration form by customer email
             String customerEmail = paymentRecord.getCustomerEmail();
             if (customerEmail == null && session.getCustomerDetails() != null) {
@@ -923,28 +931,36 @@ public class StripeService {
             }
             
             if (customerEmail == null) {
-                log.warn("⚠️ Cannot link registration: customer email not found for payment record ID: {}", paymentRecord.getId());
+                log.error("❌ CRITICAL: Cannot verify association - customer email not found for payment record ID: {}", paymentRecord.getId());
                 return;
             }
             
             // Find the most recent registration form for this customer email
-            // (since we created it during session creation)
             RegistrationForm existingRegistration = registrationFormRepository.findTopByEmailOrderByIdDesc(customerEmail);
             
             if (existingRegistration == null) {
-                log.warn("⚠️ No existing registration form found for email: {} (payment record ID: {})", 
+                log.error("❌ CRITICAL: No registration form found for email: {} (payment record ID: {})", 
                         customerEmail, paymentRecord.getId());
                 return;
             }
             
             // Check if this registration form is already linked to a payment record
             if (existingRegistration.getPaymentRecord() != null) {
-                log.warn("⚠️ Registration form ID: {} is already linked to payment record ID: {}", 
-                        existingRegistration.getId(), existingRegistration.getPaymentRecord().getId());
-                return;
+                if (existingRegistration.getPaymentRecord().getId().equals(paymentRecord.getId())) {
+                    log.info("✅ Registration form ID: {} is already correctly linked to payment record ID: {}", 
+                            existingRegistration.getId(), paymentRecord.getId());
+                    return;
+                } else {
+                    log.warn("⚠️ Registration form ID: {} is linked to different payment record ID: {}, but current payment is: {}", 
+                            existingRegistration.getId(), existingRegistration.getPaymentRecord().getId(), paymentRecord.getId());
+                    // This might be an issue - log for manual review
+                }
             }
             
-            // Set up the bidirectional one-to-one relationship
+            // Establish the bidirectional association if it doesn't exist
+            log.info("🔗 Creating missing association between registration form ID: {} and payment record ID: {}", 
+                    existingRegistration.getId(), paymentRecord.getId());
+            
             existingRegistration.setPaymentRecord(paymentRecord);
             paymentRecord.setRegistrationForm(existingRegistration);
             
@@ -952,13 +968,50 @@ public class StripeService {
             registrationFormRepository.save(existingRegistration);
             paymentRecordRepository.save(paymentRecord);
             
-            log.info("✅ Successfully linked existing registration form ID: {} to payment record ID: {}", 
+            log.info("✅ Successfully linked registration form ID: {} to payment record ID: {}", 
                     existingRegistration.getId(), paymentRecord.getId());
             
         } catch (Exception e) {
-            log.error("❌ Error linking registration form to payment record ID {}: {}", 
+            log.error("❌ Error verifying/creating association for payment record ID {}: {}", 
                     paymentRecord.getId(), e.getMessage(), e);
-            // Don't throw exception here - webhook processing should continue even if linking fails
+            // Don't throw exception here - webhook processing should continue
         }
     }
+
+    /**
+     * Link an existing RegistrationForm to a PaymentRecord by session ID
+     * This method establishes the mandatory bidirectional association during session creation
+     */
+    @Transactional
+    public void linkRegistrationToPayment(Long registrationFormId, String sessionId) {
+        log.info("🔗 Linking registration form ID: {} to payment record for session: {}", registrationFormId, sessionId);
+        
+        try {
+            // Find the registration form
+            RegistrationForm registrationForm = registrationFormRepository.findById(registrationFormId)
+                    .orElseThrow(() -> new IllegalArgumentException("RegistrationForm not found with ID: " + registrationFormId));
+            
+            // Find the payment record
+            PaymentRecord paymentRecord = paymentRecordRepository.findBySessionId(sessionId)
+                    .orElseThrow(() -> new IllegalArgumentException("PaymentRecord not found for session: " + sessionId));
+            
+            // Establish the bidirectional relationship
+            registrationForm.setPaymentRecord(paymentRecord);
+            paymentRecord.setRegistrationForm(registrationForm);
+            
+            // Save both entities to persist the relationship
+            registrationFormRepository.save(registrationForm);
+            paymentRecordRepository.save(paymentRecord);
+            
+            log.info("✅ Successfully linked registration form ID: {} to payment record ID: {} for session: {}", 
+                    registrationFormId, paymentRecord.getId(), sessionId);
+            
+        } catch (Exception e) {
+            log.error("❌ Failed to link registration form ID: {} to payment record for session: {}: {}", 
+                    registrationFormId, sessionId, e.getMessage(), e);
+            throw new RuntimeException("Failed to create mandatory registration-payment association: " + e.getMessage());
+        }
+    }
+
+    // ...existing code...
 }

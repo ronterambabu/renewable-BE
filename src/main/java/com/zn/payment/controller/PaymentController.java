@@ -18,7 +18,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
-import com.zn.controller.RegistrationController;
 import com.zn.entity.RegistrationForm;
 import com.zn.entity.PricingConfig;
 import com.zn.payment.dto.CheckoutRequest;
@@ -44,13 +43,16 @@ public class PaymentController {
     
     @Autowired
     private IPricingConfigRepository pricingConfigRepository;
-    
-    @Autowired
-    private RegistrationController registrationController;
 
     @PostMapping("/create-checkout-session")
     public ResponseEntity<PaymentResponseDTO> createCheckoutSession(@RequestBody CheckoutRequest request, @RequestParam Long pricingConfigId) {
         log.info("Received request to create checkout session: {} with mandatory pricingConfigId: {}", request, pricingConfigId);
+        
+        // Add detailed debugging for email field
+        log.info("🔍 DEBUG - Request email field: '{}'", request.getEmail());
+        log.info("🔍 DEBUG - Request name field: '{}'", request.getName());
+        log.info("🔍 DEBUG - Request phone field: '{}'", request.getPhone());
+        log.info("🔍 DEBUG - Full request object: {}", request);
         
         // Validate that pricingConfigId is provided (now mandatory)
         if (pricingConfigId == null) {
@@ -77,7 +79,9 @@ public class PaymentController {
         
         // Validate required customer fields for registration
         if (request.getEmail() == null || request.getEmail().trim().isEmpty()) {
-            log.error("Customer email is required for registration");
+            log.error("Customer email is required for registration. Request email: '{}', Request object: {}", 
+                     request.getEmail(), request);
+            log.error("❌ VALIDATION FAILED: Email field is missing or empty");
             PaymentResponseDTO errorResponse = new PaymentResponseDTO();
             errorResponse.setStatus(PaymentStatus.FAILED);
             errorResponse.setPaymentStatus("customer_email_required");
@@ -125,11 +129,6 @@ public class PaymentController {
         log.info("Setting mandatory pricingConfigId: {}", pricingConfigId);
         
         try {
-            // Always use pricing validation method since pricingConfigId is now mandatory
-            PaymentResponseDTO response = stripeService.createCheckoutSessionWithPricingValidation(request, pricingConfigId);
-            
-            log.info("Checkout session created successfully with pricing validation. Session ID: {}", response.getSessionId());
-            
             // Get the pricing config to link to the registration form
             PricingConfig pricingConfig = pricingConfigRepository.findById(pricingConfigId)
                     .orElseThrow(() -> new IllegalArgumentException("Pricing config not found with ID: " + pricingConfigId));
@@ -142,29 +141,18 @@ public class PaymentController {
             registrationForm.setInstituteOrUniversity(request.getInstituteOrUniversity() != null ? request.getInstituteOrUniversity() : "");
             registrationForm.setCountry(request.getCountry() != null ? request.getCountry() : "");
             registrationForm.setPricingConfig(pricingConfig);
-            registrationForm.setAmountPaid(pricingConfig.getTotalPrice()); // Set the amount paid from pricing config
+            registrationForm.setAmountPaid(pricingConfig.getTotalPrice());
             
-            // Call the registration controller's registerUser method to properly validate and save
-            try {
-                ResponseEntity<?> registrationResponse = registrationController.registerUser(registrationForm);
-                
-                if (registrationResponse.getStatusCode().is2xxSuccessful()) {
-                    Object responseBody = registrationResponse.getBody();
-                    if (responseBody instanceof RegistrationForm) {
-                        RegistrationForm savedRegistration = (RegistrationForm) responseBody;
-                        log.info("✅ Registration form created and saved with ID: {} for session: {}", 
-                                savedRegistration.getId(), response.getSessionId());
-                    } else {
-                        log.info("✅ Registration completed successfully for session: {}", response.getSessionId());
-                    }
-                } else {
-                    log.error("❌ Registration failed: {}", registrationResponse.getBody());
-                    // Continue with payment session creation even if registration fails
-                }
-            } catch (Exception registrationException) {
-                log.error("❌ Error during registration: {}", registrationException.getMessage());
-                // Continue with payment session creation even if registration fails
-            }
+            // Save the registration form first
+            RegistrationForm savedRegistration = registrationFormRepository.save(registrationForm);
+            log.info("✅ Registration form created and saved with ID: {}", savedRegistration.getId());
+            
+            // Create checkout session with pricing validation
+            PaymentResponseDTO response = stripeService.createCheckoutSessionWithPricingValidation(request, pricingConfigId);
+            log.info("Checkout session created successfully with pricing validation. Session ID: {}", response.getSessionId());
+            
+            // Now establish the association between RegistrationForm and PaymentRecord
+            stripeService.linkRegistrationToPayment(savedRegistration.getId(), response.getSessionId());
             
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
