@@ -201,7 +201,7 @@ public class StripeService {
             .addPaymentMethodType(SessionCreateParams.PaymentMethodType.CARD)
             .setExpiresAt(expirationTime.toEpochSecond())
             .putAllMetadata(metadata)
-            .setCustomerEmail(request.getCustomerEmail())
+            .setCustomerEmail(request.getEmail())
             .addLineItem(
                 SessionCreateParams.LineItem.builder()
                     .setQuantity(request.getQuantity())
@@ -232,7 +232,7 @@ public class StripeService {
         PaymentRecord record = PaymentRecord.builder()
             .sessionId(session.getId())
             .paymentIntentId(null)
-            .customerEmail(request.getCustomerEmail())
+            .customerEmail(request.getEmail())
             .amountTotal(BigDecimal.valueOf(request.getUnitAmount() * request.getQuantity()).divide(BigDecimal.valueOf(100))) // Convert cents to euros
             .currency("eur") // Always EUR
             .status(PaymentRecord.PaymentStatus.PENDING) // Initial status should be PENDING
@@ -328,7 +328,7 @@ public class StripeService {
             .addPaymentMethodType(SessionCreateParams.PaymentMethodType.CARD)
             .setExpiresAt(expirationTime.toEpochSecond())
             .putAllMetadata(metadata)
-            .setCustomerEmail(request.getCustomerEmail())
+            .setCustomerEmail(request.getEmail())
             .addLineItem(
                 SessionCreateParams.LineItem.builder()
                     .setQuantity(request.getQuantity())
@@ -359,7 +359,7 @@ public class StripeService {
             // 💾 Save to DB with pricing config relationship - always EUR currency
             PaymentRecord record = PaymentRecord.fromStripeWithPricing(
                 session.getId(),
-                request.getCustomerEmail(),
+                request.getEmail(),
                 "eur", // Always EUR
                 pricingConfig,
                 convertToLocalDateTime(session.getCreated()),
@@ -537,30 +537,20 @@ public class StripeService {
         log.info("🔄 Starting handleCheckoutSessionCompleted processing...");
         
         try {
-            // Try to get the Session object from the event
-            Object stripeObject = event.getData().getObject();
-            log.info("📋 Event data object type: {}", stripeObject.getClass().getSimpleName());
-            
-            if (stripeObject instanceof Session) {
-                Session session = (Session) stripeObject;
-                processCheckoutSessionCompleted(session);
-            } else {
-                log.error("❌ Event data object is not a Session! Type: {}", stripeObject.getClass().getName());
+            // Use EventDataObjectDeserializer instead of deprecated getObject()
+            EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+            if (dataObjectDeserializer.getObject().isPresent()) {
+                Object deserializedObject = dataObjectDeserializer.getObject().get();
+                log.info("📋 Event data object type: {}", deserializedObject.getClass().getSimpleName());
                 
-                // Try fallback with EventDataObjectDeserializer
-                EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
-                if (dataObjectDeserializer.getObject().isPresent()) {
-                    Object deserializedObject = dataObjectDeserializer.getObject().get();
-                    log.info("🔄 Fallback deserialization successful. Type: {}", deserializedObject.getClass().getSimpleName());
-                    
-                    if (deserializedObject instanceof Session) {
-                        Session session = (Session) deserializedObject;
-                        log.info("✅ Successfully retrieved Session via fallback: {}", session.getId());
-                        processCheckoutSessionCompleted(session);
-                    }
+                if (deserializedObject instanceof Session session) {
+                    log.info("✅ Successfully retrieved Session: {}", session.getId());
+                    processCheckoutSessionCompleted(session);
                 } else {
-                    log.error("❌ Both direct and fallback deserialization failed for checkout.session.completed");
+                    log.error("❌ Event data object is not a Session! Type: {}", deserializedObject.getClass().getName());
                 }
+            } else {
+                log.error("❌ Failed to deserialize checkout.session.completed event data");
             }
         } catch (Exception e) {
             log.error("❌ Error in handleCheckoutSessionCompleted: {}", e.getMessage(), e);
@@ -652,63 +642,25 @@ public class StripeService {
         log.info("🔄 Starting handlePaymentIntentSucceeded processing...");
         
         try {
-            // Try to get the PaymentIntent object from the event
-            Object stripeObject = event.getData().getObject();
-            log.info("📋 Event data object type: {}", stripeObject.getClass().getSimpleName());
-            
-            if (stripeObject instanceof com.stripe.model.PaymentIntent) {
-                com.stripe.model.PaymentIntent paymentIntent = (com.stripe.model.PaymentIntent) stripeObject;
+            // Use EventDataObjectDeserializer instead of deprecated getObject()
+            EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+            if (dataObjectDeserializer.getObject().isPresent()) {
+                Object deserializedObject = dataObjectDeserializer.getObject().get();
+                log.info("📋 Event data object type: {}", deserializedObject.getClass().getSimpleName());
                 
-                log.info("✅ Payment Intent succeeded: {} for amount: {} {}", 
-                        paymentIntent.getId(), 
-                        paymentIntent.getAmount() != null ? BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100)) : "unknown",
-                        paymentIntent.getCurrency());
-                
-                // First, try to find PaymentRecord by payment intent ID
-                PaymentRecord existingRecord = paymentRecordRepository.findByPaymentIntentId(paymentIntent.getId())
-                    .orElse(null);
-                
-                if (existingRecord != null) {
-                    log.info("📋 Found existing PaymentRecord by payment intent ID: {}", existingRecord.getId());
-                    updateExistingPaymentRecord(existingRecord, paymentIntent);
+                if (deserializedObject instanceof com.stripe.model.PaymentIntent paymentIntent) {
+                    log.info("✅ Payment Intent succeeded: {} for amount: {} {}", 
+                            paymentIntent.getId(), 
+                            paymentIntent.getAmount() != null ? BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100)) : "unknown",
+                            paymentIntent.getCurrency());
+                    
+                    processPaymentIntentUpdate(paymentIntent);
                 } else {
-                    log.info("🔍 No PaymentRecord found by payment intent ID, searching for PENDING records...");
-                    
-                    // Look for PENDING records and update the most suitable one
-                    List<PaymentRecord> pendingRecords = paymentRecordRepository.findByStatus(PaymentRecord.PaymentStatus.PENDING);
-                    log.info("📊 Found {} PENDING PaymentRecord(s)", pendingRecords.size());
-                    
-                    if (!pendingRecords.isEmpty()) {
-                        // Find the best matching pending record (by amount if possible)
-                        PaymentRecord recordToUpdate = findBestMatchingPendingRecord(pendingRecords, paymentIntent);
-                        updatePendingPaymentRecord(recordToUpdate, paymentIntent);
-                    } else {
-                        log.warn("⚠️ No PENDING PaymentRecord found, creating new record");
-                        createNewPaymentRecord(paymentIntent);
-                    }
+                    log.error("❌ Event data object is not a PaymentIntent! Type: {}", deserializedObject.getClass().getName());
                 }
-                
             } else {
-                log.error("❌ Event data object is not a PaymentIntent! Type: {}", stripeObject.getClass().getName());
-                
-                // Try fallback with EventDataObjectDeserializer
-                EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
-                if (dataObjectDeserializer.getObject().isPresent()) {
-                    Object deserializedObject = dataObjectDeserializer.getObject().get();
-                    log.info("🔄 Fallback deserialization successful. Type: {}", deserializedObject.getClass().getSimpleName());
-                    
-                    if (deserializedObject instanceof com.stripe.model.PaymentIntent) {
-                        com.stripe.model.PaymentIntent paymentIntent = (com.stripe.model.PaymentIntent) deserializedObject;
-                        log.info("✅ Successfully retrieved PaymentIntent via fallback: {}", paymentIntent.getId());
-                        
-                        // Process the payment intent
-                        processPaymentIntentUpdate(paymentIntent);
-                    }
-                } else {
-                    log.error("❌ Both direct and fallback deserialization failed");
-                }
+                log.error("❌ Failed to deserialize payment_intent.succeeded event data");
             }
-                
         } catch (Exception e) {
             log.error("❌ Failed to process payment_intent.succeeded: {}", e.getMessage(), e);
         }
