@@ -76,7 +76,7 @@ public class PaymentController {
         }
         
         // Validate required customer fields for registration
-        if (request.getCustomerEmail() == null || request.getCustomerEmail().trim().isEmpty()) {
+        if (request.getEmail() == null || request.getEmail().trim().isEmpty()) {
             log.error("Customer email is required for registration");
             PaymentResponseDTO errorResponse = new PaymentResponseDTO();
             errorResponse.setStatus(PaymentStatus.FAILED);
@@ -85,7 +85,7 @@ public class PaymentController {
                     .body(errorResponse);
         }
         
-        if (request.getCustomerName() == null || request.getCustomerName().trim().isEmpty()) {
+        if (request.getName() == null || request.getName().trim().isEmpty()) {
             log.error("Customer name is required for registration");
             PaymentResponseDTO errorResponse = new PaymentResponseDTO();
             errorResponse.setStatus(PaymentStatus.FAILED);
@@ -136,11 +136,11 @@ public class PaymentController {
             
             // Create a complete registration form with all user data from checkout request
             RegistrationForm registrationForm = new RegistrationForm();
-            registrationForm.setName(request.getCustomerName() != null ? request.getCustomerName() : "");
-            registrationForm.setPhone(request.getCustomerPhone() != null ? request.getCustomerPhone() : "");
-            registrationForm.setEmail(request.getCustomerEmail());
-            registrationForm.setInstituteOrUniversity(request.getCustomerInstitute() != null ? request.getCustomerInstitute() : "");
-            registrationForm.setCountry(request.getCustomerCountry() != null ? request.getCustomerCountry() : "");
+            registrationForm.setName(request.getName() != null ? request.getName() : "");
+            registrationForm.setPhone(request.getPhone() != null ? request.getPhone() : "");
+            registrationForm.setEmail(request.getEmail());
+            registrationForm.setInstituteOrUniversity(request.getInstituteOrUniversity() != null ? request.getInstituteOrUniversity() : "");
+            registrationForm.setCountry(request.getCountry() != null ? request.getCountry() : "");
             registrationForm.setPricingConfig(pricingConfig);
             registrationForm.setAmountPaid(pricingConfig.getTotalPrice()); // Set the amount paid from pricing config
             

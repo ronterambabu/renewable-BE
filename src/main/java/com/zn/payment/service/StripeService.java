@@ -177,17 +177,17 @@ public class StripeService {
         }
         
         // Store customer details for auto-registration
-        if (request.getCustomerName() != null) {
-            metadata.put("customerName", request.getCustomerName());
+        if (request.getName() != null) {
+            metadata.put("customerName", request.getName());
         }
-        if (request.getCustomerPhone() != null) {
-            metadata.put("customerPhone", request.getCustomerPhone());
+        if (request.getPhone() != null) {
+            metadata.put("customerPhone", request.getPhone());
         }
-        if (request.getCustomerInstitute() != null) {
-            metadata.put("customerInstitute", request.getCustomerInstitute());
+        if (request.getInstituteOrUniversity() != null) {
+            metadata.put("customerInstitute", request.getInstituteOrUniversity());
         }
-        if (request.getCustomerCountry() != null) {
-            metadata.put("customerCountry", request.getCustomerCountry());
+        if (request.getCountry() != null) {
+            metadata.put("customerCountry", request.getCountry());
         }
 
         // Set expiration time (US Eastern)
@@ -292,17 +292,17 @@ public class StripeService {
         }
         
         // Store customer details for auto-registration
-        if (request.getCustomerName() != null) {
-            metadata.put("customerName", request.getCustomerName());
+        if (request.getName() != null) {
+            metadata.put("customerName", request.getName());
         }
-        if (request.getCustomerPhone() != null) {
-            metadata.put("customerPhone", request.getCustomerPhone());
+        if (request.getPhone() != null) {
+            metadata.put("customerPhone", request.getPhone());
         }
-        if (request.getCustomerInstitute() != null) {
-            metadata.put("customerInstitute", request.getCustomerInstitute());
+        if (request.getInstituteOrUniversity() != null) {
+            metadata.put("customerInstitute", request.getInstituteOrUniversity());
         }
-        if (request.getCustomerCountry() != null) {
-            metadata.put("customerCountry", request.getCustomerCountry());
+        if (request.getCountry() != null) {
+            metadata.put("customerCountry", request.getCountry());
         }
         
         // Store additional registration details

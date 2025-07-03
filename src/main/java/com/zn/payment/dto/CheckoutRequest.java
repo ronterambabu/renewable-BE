@@ -17,16 +17,14 @@ public class CheckoutRequest {
     private String currency; // Optional: defaults to "eur" if not provided. Only "eur" is supported.
     private String successUrl;
     private String cancelUrl;
-    private String customerEmail;
     private Long pricingConfigId; // Required for price validation
     
-    // Additional customer details for auto-registration
-    private String customerName;
-    private String customerPhone;
-    private String customerInstitute;
-    private String customerCountry;
-    
-    // Additional registration details (matching RegistrationRequestDTO)
+    // Customer and registration details (matching RegistrationRequestDTO naming)
+    private String name;
+    private String phone;
+    private String email;
+    private String instituteOrUniversity;
+    private String country;
     private String registrationType;
     private String presentationType;
     private boolean accompanyingPerson;
