@@ -464,12 +464,30 @@ public class StripeService {
     public void processWebhookEvent(Event event) {
         log.info("Processing webhook event of type: {}", event.getType());
         
-        switch (event.getType()) {
-            case "checkout.session.completed" -> handleCheckoutSessionCompleted(event);
-            case "payment_intent.succeeded" -> handlePaymentIntentSucceeded(event);
-            case "payment_intent.payment_failed" -> handlePaymentIntentFailed(event);
-            case "checkout.session.expired" -> handleCheckoutSessionExpired(event);
-            default -> log.info("Unhandled event type: {} - No action taken", event.getType());
+        try {
+            switch (event.getType()) {
+                case "checkout.session.completed" -> {
+                    log.info("🎯 Handling checkout.session.completed event");
+                    handleCheckoutSessionCompleted(event);
+                }
+                case "payment_intent.succeeded" -> {
+                    log.info("🎯 Handling payment_intent.succeeded event");
+                    handlePaymentIntentSucceeded(event);
+                }
+                case "payment_intent.payment_failed" -> {
+                    log.info("🎯 Handling payment_intent.payment_failed event");
+                    handlePaymentIntentFailed(event);
+                }
+                case "checkout.session.expired" -> {
+                    log.info("🎯 Handling checkout.session.expired event");
+                    handleCheckoutSessionExpired(event);
+                }
+                default -> {
+                    log.info("⚠️ Unhandled event type: {} - No action taken", event.getType());
+                }
+            }
+        } catch (Exception e) {
+            log.error("❌ Error processing webhook event {}: {}", event.getType(), e.getMessage(), e);
         }
     }
 
@@ -534,7 +552,9 @@ public class StripeService {
      * This fires when the payment is successfully processed
      */
     private void handlePaymentIntentSucceeded(Event event) {
+        log.info("🔄 Starting handlePaymentIntentSucceeded processing...");
         EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+        
         if (dataObjectDeserializer.getObject().isPresent()) {
             try {
                 // Get PaymentIntent from the event
@@ -545,61 +565,27 @@ public class StripeService {
                         paymentIntent.getAmount() != null ? BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100)) : "unknown",
                         paymentIntent.getCurrency());
                 
-                // Try to find PaymentRecord by payment intent ID first
+                // First, try to find PaymentRecord by payment intent ID
                 PaymentRecord existingRecord = paymentRecordRepository.findByPaymentIntentId(paymentIntent.getId())
                     .orElse(null);
                 
                 if (existingRecord != null) {
-                    // Update existing record to COMPLETED status
-                    existingRecord.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
-                    existingRecord.setPaymentIntentId(paymentIntent.getId());
-                    
-                    // Update amount and currency if they were null
-                    if (existingRecord.getAmountTotal() == null && paymentIntent.getAmount() != null) {
-                        existingRecord.setAmountTotal(BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100)));
-                    }
-                    if (existingRecord.getCurrency() == null) {
-                        existingRecord.setCurrency(paymentIntent.getCurrency());
-                    }
-                    
-                    paymentRecordRepository.save(existingRecord);
-                    log.info("💾 Updated PaymentRecord for payment intent: {} to COMPLETED status", paymentIntent.getId());
+                    log.info("📋 Found existing PaymentRecord by payment intent ID: {}", existingRecord.getId());
+                    updateExistingPaymentRecord(existingRecord, paymentIntent);
                 } else {
-                    // If not found by payment intent ID, look for PENDING records and update the first one
-                    // This handles cases where the record exists but payment intent ID wasn't set yet
+                    log.info("🔍 No PaymentRecord found by payment intent ID, searching for PENDING records...");
+                    
+                    // Look for PENDING records and update the most suitable one
                     List<PaymentRecord> pendingRecords = paymentRecordRepository.findByStatus(PaymentRecord.PaymentStatus.PENDING);
+                    log.info("📊 Found {} PENDING PaymentRecord(s)", pendingRecords.size());
                     
                     if (!pendingRecords.isEmpty()) {
-                        // Update the most recent pending record
-                        PaymentRecord recordToUpdate = pendingRecords.get(0);
-                        recordToUpdate.setPaymentIntentId(paymentIntent.getId());
-                        recordToUpdate.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
-                        
-                        // Update amount if needed
-                        if (paymentIntent.getAmount() != null) {
-                            BigDecimal actualAmount = BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100));
-                            if (recordToUpdate.getAmountTotal() == null || !recordToUpdate.getAmountTotal().equals(actualAmount)) {
-                                recordToUpdate.setAmountTotal(actualAmount);
-                            }
-                        }
-                        
-                        paymentRecordRepository.save(recordToUpdate);
-                        log.info("💾 Updated pending PaymentRecord (ID: {}) for payment intent: {} to COMPLETED status", 
-                                recordToUpdate.getId(), paymentIntent.getId());
+                        // Find the best matching pending record (by amount if possible)
+                        PaymentRecord recordToUpdate = findBestMatchingPendingRecord(pendingRecords, paymentIntent);
+                        updatePendingPaymentRecord(recordToUpdate, paymentIntent);
                     } else {
-                        log.warn("⚠️ No PaymentRecord found for payment intent: {} - creating new record", paymentIntent.getId());
-                        
-                        // Create new record as fallback
-                        PaymentRecord newRecord = PaymentRecord.builder()
-                                .paymentIntentId(paymentIntent.getId())
-                                .amountTotal(paymentIntent.getAmount() != null ? 
-                                    BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100)) : null)
-                                .currency(paymentIntent.getCurrency())
-                                .status(PaymentRecord.PaymentStatus.COMPLETED)
-                                .build();
-                        
-                        paymentRecordRepository.save(newRecord);
-                        log.info("💾 Created new PaymentRecord for payment intent: {}", paymentIntent.getId());
+                        log.warn("⚠️ No PENDING PaymentRecord found, creating new record");
+                        createNewPaymentRecord(paymentIntent);
                     }
                 }
                 
@@ -609,6 +595,99 @@ public class StripeService {
         } else {
             log.warn("⚠️ Event data object deserialization failed for payment_intent.succeeded");
         }
+        
+        log.info("✅ Completed handlePaymentIntentSucceeded processing");
+    }
+    
+    /**
+     * Update existing PaymentRecord that already has payment intent ID
+     */
+    private void updateExistingPaymentRecord(PaymentRecord record, com.stripe.model.PaymentIntent paymentIntent) {
+        log.info("🔄 Updating existing PaymentRecord ID: {} for payment intent: {}", record.getId(), paymentIntent.getId());
+        
+        record.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
+        record.setPaymentIntentId(paymentIntent.getId());
+        
+        // Update amount and currency if needed
+        if (record.getAmountTotal() == null && paymentIntent.getAmount() != null) {
+            BigDecimal amount = BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100));
+            record.setAmountTotal(amount);
+            log.info("💰 Updated amount to: {} EUR", amount);
+        }
+        if (record.getCurrency() == null && paymentIntent.getCurrency() != null) {
+            record.setCurrency(paymentIntent.getCurrency());
+            log.info("💱 Updated currency to: {}", paymentIntent.getCurrency());
+        }
+        
+        paymentRecordRepository.save(record);
+        log.info("💾 ✅ Successfully updated existing PaymentRecord ID: {} to COMPLETED status", record.getId());
+    }
+    
+    /**
+     * Find the best matching pending record for the payment intent
+     */
+    private PaymentRecord findBestMatchingPendingRecord(List<PaymentRecord> pendingRecords, com.stripe.model.PaymentIntent paymentIntent) {
+        if (paymentIntent.getAmount() != null) {
+            BigDecimal paymentAmount = BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100));
+            
+            // Try to find a record with matching amount
+            for (PaymentRecord record : pendingRecords) {
+                if (record.getAmountTotal() != null && record.getAmountTotal().compareTo(paymentAmount) == 0) {
+                    log.info("🎯 Found PENDING record with matching amount: {} EUR (ID: {})", paymentAmount, record.getId());
+                    return record;
+                }
+            }
+        }
+        
+        // If no amount match, return the first (most recent) pending record
+        PaymentRecord firstRecord = pendingRecords.get(0);
+        log.info("📋 Using first PENDING record (ID: {}) - no amount match found", firstRecord.getId());
+        return firstRecord;
+    }
+    
+    /**
+     * Update a pending PaymentRecord with payment intent information
+     */
+    private void updatePendingPaymentRecord(PaymentRecord record, com.stripe.model.PaymentIntent paymentIntent) {
+        log.info("🔄 Updating PENDING PaymentRecord ID: {} with payment intent: {}", record.getId(), paymentIntent.getId());
+        
+        record.setPaymentIntentId(paymentIntent.getId());
+        record.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
+        
+        // Update amount if needed or if it doesn't match
+        if (paymentIntent.getAmount() != null) {
+            BigDecimal paymentAmount = BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100));
+            if (record.getAmountTotal() == null || record.getAmountTotal().compareTo(paymentAmount) != 0) {
+                log.info("💰 Updating amount from {} to {} EUR", record.getAmountTotal(), paymentAmount);
+                record.setAmountTotal(paymentAmount);
+            }
+        }
+        
+        if (paymentIntent.getCurrency() != null && record.getCurrency() == null) {
+            record.setCurrency(paymentIntent.getCurrency());
+            log.info("💱 Set currency to: {}", paymentIntent.getCurrency());
+        }
+        
+        paymentRecordRepository.save(record);
+        log.info("💾 ✅ Successfully updated PENDING PaymentRecord ID: {} to COMPLETED status", record.getId());
+    }
+    
+    /**
+     * Create new PaymentRecord from payment intent (fallback)
+     */
+    private void createNewPaymentRecord(com.stripe.model.PaymentIntent paymentIntent) {
+        log.info("🆕 Creating new PaymentRecord for payment intent: {}", paymentIntent.getId());
+        
+        PaymentRecord newRecord = PaymentRecord.builder()
+                .paymentIntentId(paymentIntent.getId())
+                .amountTotal(paymentIntent.getAmount() != null ? 
+                    BigDecimal.valueOf(paymentIntent.getAmount()).divide(BigDecimal.valueOf(100)) : null)
+                .currency(paymentIntent.getCurrency() != null ? paymentIntent.getCurrency() : "eur")
+                .status(PaymentRecord.PaymentStatus.COMPLETED)
+                .build();
+        
+        paymentRecordRepository.save(newRecord);
+        log.info("💾 ✅ Created new PaymentRecord ID: {} for payment intent: {}", newRecord.getId(), paymentIntent.getId());
     }
 
     /**
