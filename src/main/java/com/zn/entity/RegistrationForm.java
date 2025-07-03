@@ -4,12 +4,15 @@ import java.math.BigDecimal;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToOne;
 import lombok.Data;
+
 @Entity
 @Data
 public class RegistrationForm {
@@ -24,7 +27,6 @@ public class RegistrationForm {
     private String instituteOrUniversity;
     private String country;
 
-
     @ManyToOne
     @JoinColumn(name = "pricing_config_id")
     private PricingConfig pricingConfig;
@@ -32,7 +34,8 @@ public class RegistrationForm {
     @Column(nullable = false)
     private BigDecimal amountPaid; // snapshot of totalPrice at registration time
     
-    // Reference to the PaymentRecord that triggered this registration
-    @Column(name = "payment_record_id")
-    private Long paymentRecordId;
+    // One-to-One relationship with PaymentRecord
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "payment_record_id", referencedColumnName = "id")
+    private com.zn.payment.entity.PaymentRecord paymentRecord;
 }

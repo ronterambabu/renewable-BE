@@ -15,6 +15,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToOne;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -79,9 +81,9 @@ public class PaymentRecord {
     @JoinColumn(name = "pricing_config_id")
     private PricingConfig pricingConfig;
     
-    // Relationship to RegistrationForm (optional - set after auto-registration)
-    @Column(name = "registration_form_id")
-    private Long registrationFormId;
+    // One-to-One relationship with RegistrationForm (bidirectional)
+    @OneToOne(mappedBy = "paymentRecord", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private com.zn.entity.RegistrationForm registrationForm;
 
     // TODO: Add AccommodationMetadata relationship after fixing compilation issues
     // @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL)

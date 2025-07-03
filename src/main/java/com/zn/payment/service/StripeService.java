@@ -1000,22 +1000,23 @@ public class StripeService {
             registrationForm.setCountry(customerCountry != null ? customerCountry : ""); // Will be updated by user later
             registrationForm.setPricingConfig(paymentRecord.getPricingConfig());
             registrationForm.setAmountPaid(paymentRecord.getAmountTotal());
-            registrationForm.setPaymentRecordId(paymentRecord.getId()); // Link to payment record
+            // Set up the bidirectional one-to-one relationship
+            registrationForm.setPaymentRecord(paymentRecord);
+            paymentRecord.setRegistrationForm(registrationForm);
             
             log.info("� Saving RegistrationForm: email={}, pricingConfigId={}, amount={}", 
                     customerEmail, paymentRecord.getPricingConfig().getId(), paymentRecord.getAmountTotal());
             
-            // Save directly using repository
+            // Save the registration form first (this will cascade to update the payment record)
             RegistrationForm savedRegistration = registrationFormRepository.save(registrationForm);
+            
+            // Also save the payment record to ensure the relationship is persisted on both sides
+            paymentRecordRepository.save(paymentRecord);
             
             log.info("✅ Auto-registration successful! Created registration ID: {} for payment record ID: {}", 
                     savedRegistration.getId(), paymentRecord.getId());
             
-            // Update payment record with registration reference
-            paymentRecord.setRegistrationFormId(savedRegistration.getId());
-            paymentRecordRepository.save(paymentRecord);
-            
-            log.info("🔗 Linked PaymentRecord ID: {} with RegistrationForm ID: {}", 
+            log.info("🔗 Established bidirectional relationship between PaymentRecord ID: {} and RegistrationForm ID: {}", 
                     paymentRecord.getId(), savedRegistration.getId());
             
         } catch (Exception e) {
