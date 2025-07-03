@@ -32,12 +32,15 @@ import com.zn.repository.IPricingConfigRepository;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Stripe Payment Service - EURO ONLY PAYMENTS
+ * Stripe Payment Service - EURO ONLY PAYMENTS WITH MANDATORY PRICING CONFIG
  * 
  * This service handles all Stripe payment operations and enforces EURO-only payments throughout the system.
+ * ALL CHECKOUT SESSIONS NOW REQUIRE A PRICING CONFIG ID FOR VALIDATION.
  * 
  * Key Features:
  * - All payments are processed in EUR currency only
+ * - pricingConfigId is MANDATORY for all checkout session creation
+ * - Request amounts are validated against PricingConfig.totalPrice in EUROS
  * - Amounts are stored in euros (BigDecimal) in the database
  * - Stripe checkout sessions are created with EUR currency
  * - Payment dashboard reports show amounts in euros
@@ -51,6 +54,12 @@ import lombok.extern.slf4j.Slf4j;
  * - Database stores amounts in euros (e.g., 45.00)
  * - Stripe dashboard will display all payments in euros
  * - Payment reports and statistics show euro values
+ * 
+ * Pricing Validation Policy:
+ * - Every checkout session MUST include a valid pricingConfigId
+ * - Request amount (unitAmount * quantity) MUST exactly match PricingConfig.totalPrice in EUROS
+ * - Validation is performed in EUROS before conversion to cents for Stripe
+ * - No sessions can be created without pricing config validation
  * 
  * @author System
  */
@@ -225,28 +234,12 @@ public class StripeService {
 }
 
     /**
-     * Create checkout session without pricing config validation
-     * Only validates EUR currency and creates session directly
+     * @deprecated This method is no longer used since pricingConfigId is now mandatory.
+     * Use createCheckoutSessionWithPricingValidation instead.
      */
+    @Deprecated
     public PaymentResponseDTO createCheckoutSessionWithoutPricingValidation(CheckoutRequest request) throws StripeException {
-        log.info("Creating checkout session without pricing validation for product: {}", request.getProductName());
-        
-        // Validate EUR currency
-        validateEuroCurrency(request);
-        
-        // Create Stripe session using existing method
-        Session session = createDetailedCheckoutSession(request);
-        
-        // Fetch the saved PaymentRecord from database
-        PaymentRecord paymentRecord = paymentRecordRepository.findBySessionId(session.getId())
-            .orElseThrow(() -> new RuntimeException("PaymentRecord not found after creation for session: " + session.getId()));
-        
-        // Create complete response DTO with both Stripe and DB information
-        PaymentResponseDTO response = createCompleteResponseDTO(session, paymentRecord);
-        log.info("✅ Checkout session created without pricing validation: {} with DB ID: {}", 
-                session.getId(), paymentRecord.getId());
-        
-        return response;
+        throw new UnsupportedOperationException("pricingConfigId is now mandatory. Use createCheckoutSessionWithPricingValidation instead.");
     }
 
     /**
@@ -394,10 +387,10 @@ public class StripeService {
 
     /**
      * Create checkout session with pricing config ID validation
-     * Fetches pricing config by ID and validates amount matches exactly
+     * Fetches pricing config by ID and validates amount matches exactly in EUROS
      */
     public PaymentResponseDTO createCheckoutSessionWithPricingValidation(CheckoutRequest request, Long pricingConfigId) throws StripeException {
-        log.info("Creating checkout session with pricing config ID: {}", pricingConfigId);
+        log.info("Creating checkout session with mandatory pricing config ID: {}", pricingConfigId);
         
         // 1. Validate currency is EUR
         validateEuroCurrency(request);
@@ -408,36 +401,34 @@ public class StripeService {
         
         log.info("Found pricing config with total price: {} EUR", pricingConfig.getTotalPrice());
         
-        // 3. Validate unitAmount matches pricing config
-        // Note: request.getUnitAmount() is already in cents (converted by controller)
-        // pricingConfig.getTotalPrice() is in euros, so convert to cents for comparison
-        Long expectedTotalInCents = pricingConfig.getTotalPrice().multiply(BigDecimal.valueOf(100)).longValue();
-        Long requestedTotalInCents = request.getUnitAmount() * request.getQuantity();
+        // 3. Convert request amount back to euros for comparison (request comes in cents after controller conversion)
+        BigDecimal requestTotalInEuros = BigDecimal.valueOf(request.getUnitAmount() * request.getQuantity()).divide(BigDecimal.valueOf(100));
+        BigDecimal pricingConfigTotalInEuros = pricingConfig.getTotalPrice();
         
-        if (!expectedTotalInCents.equals(requestedTotalInCents)) {
-            BigDecimal expectedEuros = pricingConfig.getTotalPrice();
-            BigDecimal requestedEuros = BigDecimal.valueOf(requestedTotalInCents).divide(BigDecimal.valueOf(100));
-            
-            log.error("Payment amount validation failed. Expected: {} cents ({} EUR), Requested: {} cents ({} EUR)", 
-                     expectedTotalInCents, expectedEuros, 
-                     requestedTotalInCents, requestedEuros);
+        log.info("Comparing amounts in EUROS - Request total: {} EUR, PricingConfig total: {} EUR", 
+                requestTotalInEuros, pricingConfigTotalInEuros);
+        
+        // 4. Validate amounts match exactly in EUROS (with scale precision)
+        if (requestTotalInEuros.compareTo(pricingConfigTotalInEuros) != 0) {
+            log.error("❌ Payment amount validation failed in EUROS. Expected: {} EUR, Requested: {} EUR", 
+                     pricingConfigTotalInEuros, requestTotalInEuros);
             throw new IllegalArgumentException(
-                String.format("Payment amount mismatch. Expected: %s EUR, but received: %s EUR", 
-                            expectedEuros, requestedEuros));
+                String.format("Payment amount mismatch. Expected: %s EUR from pricing config, but received: %s EUR in request", 
+                            pricingConfigTotalInEuros, requestTotalInEuros));
         }
         
-        log.info("✅ Amount validation passed: {} EUR", pricingConfig.getTotalPrice());
+        log.info("✅ Amount validation passed in EUROS: {} EUR matches pricing config", requestTotalInEuros);
         
-        // 4. Create Stripe session using the existing method
+        // 5. Create Stripe session using the existing method
         Session session = createCheckoutSessionWithPricing(request, pricingConfig);
         
-        // 5. Fetch the saved PaymentRecord from database
+        // 6. Fetch the saved PaymentRecord from database
         PaymentRecord paymentRecord = paymentRecordRepository.findBySessionId(session.getId())
             .orElseThrow(() -> new RuntimeException("PaymentRecord not found after creation for session: " + session.getId()));
         
-        // 6. Create complete response DTO with both Stripe and DB information
+        // 7. Create complete response DTO with both Stripe and DB information
         PaymentResponseDTO response = createCompleteResponseDTO(session, paymentRecord);
-        log.info("✅ Checkout session created with pricing validation: {} with DB ID: {}", 
+        log.info("✅ Checkout session created with mandatory pricing validation: {} with DB ID: {}", 
                 session.getId(), paymentRecord.getId());
         
         return response;

@@ -35,8 +35,18 @@ public class PaymentController {
     private StripeService stripeService;
 
     @PostMapping("/create-checkout-session")
-    public ResponseEntity<PaymentResponseDTO> createCheckoutSession(@RequestBody CheckoutRequest request, @RequestParam(required = false) Long pricingConfigId) {
-        log.info("Received request to create checkout session: {}", request);
+    public ResponseEntity<PaymentResponseDTO> createCheckoutSession(@RequestBody CheckoutRequest request, @RequestParam Long pricingConfigId) {
+        log.info("Received request to create checkout session: {} with mandatory pricingConfigId: {}", request, pricingConfigId);
+        
+        // Validate that pricingConfigId is provided (now mandatory)
+        if (pricingConfigId == null) {
+            log.error("pricingConfigId is mandatory but not provided");
+            PaymentResponseDTO errorResponse = new PaymentResponseDTO();
+            errorResponse.setStatus(PaymentStatus.FAILED);
+            errorResponse.setPaymentStatus("pricing_config_id_required");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(errorResponse);
+        }
         
         // Validate incoming request currency is EUR only
         if (request.getCurrency() == null) {
@@ -77,25 +87,15 @@ public class PaymentController {
         log.info("✅ Request validation passed: {} EUR converted to {} cents, quantity: {}", 
                 request.getUnitAmount() / 100.0, request.getUnitAmount(), request.getQuantity());
          
-        // If pricingConfigId is provided as request parameter, set it in the request object
-        if (pricingConfigId != null) {
-            request.setPricingConfigId(pricingConfigId);
-            log.info("Setting pricingConfigId from request param: {}", pricingConfigId);
-        }
+        // Set pricingConfigId in the request object (now mandatory)
+        request.setPricingConfigId(pricingConfigId);
+        log.info("Setting mandatory pricingConfigId: {}", pricingConfigId);
         
         try {
-            PaymentResponseDTO response;
+            // Always use pricing validation method since pricingConfigId is now mandatory
+            PaymentResponseDTO response = stripeService.createCheckoutSessionWithPricingValidation(request, pricingConfigId);
             
-            // If pricingConfigId is provided, use pricing validation method
-            if (pricingConfigId != null) {
-                // Call service method that fetches pricing config and validates amount
-                response = stripeService.createCheckoutSessionWithPricingValidation(request, pricingConfigId);
-            } else {
-                // For requests without pricing config, use standard EUR validation only
-                response = stripeService.createCheckoutSessionWithoutPricingValidation(request);
-            }
-            
-            log.info("Checkout session created successfully. Session ID: {}", response.getSessionId());
+            log.info("Checkout session created successfully with pricing validation. Session ID: {}", response.getSessionId());
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
             log.error("Validation error creating checkout session: {}", e.getMessage());
