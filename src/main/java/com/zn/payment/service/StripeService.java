@@ -305,19 +305,17 @@ public class StripeService {
             metadata.put("customerCountry", request.getCustomerCountry());
         }
         
-        // Store customer details for auto-registration
-        if (request.getCustomerName() != null) {
-            metadata.put("customerName", request.getCustomerName());
+        // Store additional registration details
+        if (request.getRegistrationType() != null) {
+            metadata.put("registrationType", request.getRegistrationType());
         }
-        if (request.getCustomerPhone() != null) {
-            metadata.put("customerPhone", request.getCustomerPhone());
+        if (request.getPresentationType() != null) {
+            metadata.put("presentationType", request.getPresentationType());
         }
-        if (request.getCustomerInstitute() != null) {
-            metadata.put("customerInstitute", request.getCustomerInstitute());
-        }
-        if (request.getCustomerCountry() != null) {
-            metadata.put("customerCountry", request.getCustomerCountry());
-        }
+        metadata.put("accompanyingPerson", String.valueOf(request.isAccompanyingPerson()));
+        metadata.put("extraNights", String.valueOf(request.getExtraNights()));
+        metadata.put("accommodationNights", String.valueOf(request.getAccommodationNights()));
+        metadata.put("accommodationGuests", String.valueOf(request.getAccommodationGuests()));
 
         // Set expiration time (US Eastern)
         ZonedDateTime expirationTime = ZonedDateTime.now(US_ZONE).plus(30, ChronoUnit.MINUTES);

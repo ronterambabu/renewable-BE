@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
+import com.zn.controller.RegistrationController;
 import com.zn.entity.RegistrationForm;
 import com.zn.entity.PricingConfig;
 import com.zn.payment.dto.CheckoutRequest;
@@ -43,6 +44,9 @@ public class PaymentController {
     
     @Autowired
     private IPricingConfigRepository pricingConfigRepository;
+    
+    @Autowired
+    private RegistrationController registrationController;
 
     @PostMapping("/create-checkout-session")
     public ResponseEntity<PaymentResponseDTO> createCheckoutSession(@RequestBody CheckoutRequest request, @RequestParam Long pricingConfigId) {
@@ -67,6 +71,25 @@ public class PaymentController {
             PaymentResponseDTO errorResponse = new PaymentResponseDTO();
             errorResponse.setStatus(PaymentStatus.FAILED);
             errorResponse.setPaymentStatus("invalid_currency_only_eur_supported");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(errorResponse);
+        }
+        
+        // Validate required customer fields for registration
+        if (request.getCustomerEmail() == null || request.getCustomerEmail().trim().isEmpty()) {
+            log.error("Customer email is required for registration");
+            PaymentResponseDTO errorResponse = new PaymentResponseDTO();
+            errorResponse.setStatus(PaymentStatus.FAILED);
+            errorResponse.setPaymentStatus("customer_email_required");
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(errorResponse);
+        }
+        
+        if (request.getCustomerName() == null || request.getCustomerName().trim().isEmpty()) {
+            log.error("Customer name is required for registration");
+            PaymentResponseDTO errorResponse = new PaymentResponseDTO();
+            errorResponse.setStatus(PaymentStatus.FAILED);
+            errorResponse.setPaymentStatus("customer_name_required");
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(errorResponse);
         }
@@ -111,7 +134,7 @@ public class PaymentController {
             PricingConfig pricingConfig = pricingConfigRepository.findById(pricingConfigId)
                     .orElseThrow(() -> new IllegalArgumentException("Pricing config not found with ID: " + pricingConfigId));
             
-            // Create registration form entity and save to database immediately
+            // Create a complete registration form with all user data from checkout request
             RegistrationForm registrationForm = new RegistrationForm();
             registrationForm.setName(request.getCustomerName() != null ? request.getCustomerName() : "");
             registrationForm.setPhone(request.getCustomerPhone() != null ? request.getCustomerPhone() : "");
@@ -121,10 +144,27 @@ public class PaymentController {
             registrationForm.setPricingConfig(pricingConfig);
             registrationForm.setAmountPaid(pricingConfig.getTotalPrice()); // Set the amount paid from pricing config
             
-            // Save the registration form to database
-            RegistrationForm savedRegistration = registrationFormRepository.save(registrationForm);
-            log.info("✅ Registration form created and saved with ID: {} for session: {}", 
-                    savedRegistration.getId(), response.getSessionId());
+            // Call the registration controller's registerUser method to properly validate and save
+            try {
+                ResponseEntity<?> registrationResponse = registrationController.registerUser(registrationForm);
+                
+                if (registrationResponse.getStatusCode().is2xxSuccessful()) {
+                    Object responseBody = registrationResponse.getBody();
+                    if (responseBody instanceof RegistrationForm) {
+                        RegistrationForm savedRegistration = (RegistrationForm) responseBody;
+                        log.info("✅ Registration form created and saved with ID: {} for session: {}", 
+                                savedRegistration.getId(), response.getSessionId());
+                    } else {
+                        log.info("✅ Registration completed successfully for session: {}", response.getSessionId());
+                    }
+                } else {
+                    log.error("❌ Registration failed: {}", registrationResponse.getBody());
+                    // Continue with payment session creation even if registration fails
+                }
+            } catch (Exception registrationException) {
+                log.error("❌ Error during registration: {}", registrationException.getMessage());
+                // Continue with payment session creation even if registration fails
+            }
             
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {

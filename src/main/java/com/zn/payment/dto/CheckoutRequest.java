@@ -25,4 +25,12 @@ public class CheckoutRequest {
     private String customerPhone;
     private String customerInstitute;
     private String customerCountry;
+    
+    // Additional registration details (matching RegistrationRequestDTO)
+    private String registrationType;
+    private String presentationType;
+    private boolean accompanyingPerson;
+    private int extraNights;
+    private int accommodationNights;
+    private int accommodationGuests;
 }
