@@ -44,7 +44,7 @@ public class SecurityConfig {
         configuration.setAllowedOriginPatterns(Arrays.asList(
             "https://renewable-meet-2026.vercel.app",
             "https://*.vercel.app", // Allow all Vercel subdomains
-            "http://localhost:*", 
+            "http://localhost:*",
             "https://localhost:*",
             "https://stripe.zynmarketing.xyz"
         ));
