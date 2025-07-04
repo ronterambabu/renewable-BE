@@ -43,10 +43,11 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOriginPatterns(Arrays.asList(
             "https://renewable-meet-2026.vercel.app",
-            "https://*.vercel.app", // Allow all Vercel subdomains
+            "https://*.vercel.app", 
             "http://localhost:*",
             "https://localhost:*",
-            "https://stripe.zynmarketing.xyz"
+            "https://stripe.zynmarketing.xyz" , 
+            "http://147.93.102.131:8901"
         ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
