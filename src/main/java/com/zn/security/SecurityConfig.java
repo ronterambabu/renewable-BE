@@ -49,6 +49,10 @@ public class SecurityConfig {
             "https://localhost:*",
             "https://stripe.zynmarketing.xyz/**", // Fixed closing quote and pattern
             "http://stripe.zynmarketing.xyz/**",  // HTTP version
+            "https://zynmarketing.xyz/**", // Add main domain HTTPS
+            "http://zynmarketing.xyz/**",  // Add main domain HTTP
+            "https://*.zynmarketing.xyz/**", // Allow all subdomains of zynmarketing.xyz
+            "http://*.zynmarketing.xyz/**",  // Allow all subdomains HTTP
             "http://147.93.102.131:*",
             "https://147.93.102.131:*" // HTTPS version of IP
         ));
@@ -65,8 +69,20 @@ public class SecurityConfig {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
+            .headers(headers -> headers
+                .httpStrictTransportSecurity(hstsConfig -> hstsConfig
+                    .maxAgeInSeconds(31536000)
+                    .includeSubDomains(true)
+                    .preload(true)
+                )
+            )
+            .requiresChannel(channel -> 
+                channel.requestMatchers(r -> r.getHeader("X-Forwarded-Proto") != null)
+                .requiresSecure()
+            )
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers("/admin/api/admin/login", "/admin/api/admin/logout").permitAll()
+                .requestMatchers("/api/**").permitAll() // Allow all API endpoints
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 .anyRequest().permitAll()
             )
