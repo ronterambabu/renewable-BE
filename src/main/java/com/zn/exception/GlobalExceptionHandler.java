@@ -12,6 +12,9 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.validation.FieldError;
+import org.springframework.http.converter.HttpMessageConversionException;
+
+import com.fasterxml.jackson.databind.JsonMappingException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -146,5 +149,36 @@ public class GlobalExceptionHandler {
             request.getDescription(false)
         );
         return new ResponseEntity<>(errorResponse, HttpStatus.UNAUTHORIZED);
+    }
+
+    @ExceptionHandler(HttpMessageConversionException.class)
+    public ResponseEntity<ErrorResponse> handleHttpMessageConversionException(HttpMessageConversionException ex, WebRequest request) {
+        String message = "Error serializing response data";
+        
+        // Check if it's a Hibernate proxy issue
+        if (ex.getMessage() != null && ex.getMessage().contains("ByteBuddyInterceptor")) {
+            message = "Database entity serialization error - please contact support";
+        }
+        
+        ErrorResponse errorResponse = new ErrorResponse(
+            HttpStatus.INTERNAL_SERVER_ERROR.value(),
+            "Serialization Error",
+            message,
+            LocalDateTime.now(),
+            request.getDescription(false)
+        );
+        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    @ExceptionHandler(JsonMappingException.class)
+    public ResponseEntity<ErrorResponse> handleJsonMappingException(JsonMappingException ex, WebRequest request) {
+        ErrorResponse errorResponse = new ErrorResponse(
+            HttpStatus.INTERNAL_SERVER_ERROR.value(),
+            "JSON Mapping Error",
+            "Error processing data format",
+            LocalDateTime.now(),
+            request.getDescription(false)
+        );
+        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }

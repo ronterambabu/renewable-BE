@@ -48,7 +48,7 @@ public class SecurityConfig {
             "http://localhost:*",
             "https://localhost:*",
             "https://stripe.zynmarketing.xyz",
-              "http://147.93.102.131:8901"
+              "http://147.93.102.131:*"
            
         ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));

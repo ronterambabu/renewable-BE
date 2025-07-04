@@ -1,6 +1,7 @@
 package com.zn.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -12,6 +13,7 @@ import lombok.Data;
 @Entity
 @Table(name = "admins")
 @Data
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Admin {
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)

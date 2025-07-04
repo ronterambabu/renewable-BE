@@ -2,6 +2,9 @@ package com.zn.entity;
 
 import java.math.BigDecimal;
 
+import com.fasterxml.jackson.annotation.JsonManagedReference;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -15,6 +18,7 @@ import lombok.Data;
 
 @Entity
 @Data
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class RegistrationForm {
 
     @Id
@@ -37,5 +41,6 @@ public class RegistrationForm {
     // One-to-One relationship with PaymentRecord
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "payment_record_id", referencedColumnName = "id")
+    @JsonManagedReference
     private com.zn.payment.entity.PaymentRecord paymentRecord;
 }

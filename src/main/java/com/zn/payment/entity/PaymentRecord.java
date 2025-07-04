@@ -3,6 +3,8 @@ package com.zn.payment.entity;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.zn.entity.PricingConfig;
 
 import jakarta.persistence.Column;
@@ -33,6 +35,7 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class PaymentRecord {
 
     @Id
@@ -83,12 +86,9 @@ public class PaymentRecord {
     
     // One-to-One relationship with RegistrationForm (bidirectional)
     @OneToOne(mappedBy = "paymentRecord", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonBackReference
     private com.zn.entity.RegistrationForm registrationForm;
 
-    // TODO: Add AccommodationMetadata relationship after fixing compilation issues
-    // @OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL)
-    // @JoinColumn(name = "accommodation_metadata_id")
-    // private AccommodationMetadata accommodationMetadata;
 
     @PrePersist
     protected void onCreate() {
