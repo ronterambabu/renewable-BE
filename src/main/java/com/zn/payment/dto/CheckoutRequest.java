@@ -31,4 +31,5 @@ public class CheckoutRequest {
     private int extraNights;
     private int accommodationNights;
     private int accommodationGuests;
+    
 }

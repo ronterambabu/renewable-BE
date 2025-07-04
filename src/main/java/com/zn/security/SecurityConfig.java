@@ -47,9 +47,10 @@ public class SecurityConfig {
             "https://*.vercel.app", // Allow all Vercel subdomains
             "http://localhost:*",
             "https://localhost:*",
-            "https://stripe.zynmarketing.xyz",
-              "http://147.93.102.131:*"
-           
+            "https://stripe.zynmarketing.xyz/**", // Fixed closing quote and pattern
+            "http://stripe.zynmarketing.xyz/**",  // HTTP version
+            "http://147.93.102.131:*",
+            "https://147.93.102.131:*" // HTTPS version of IP
         ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));

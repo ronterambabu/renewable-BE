@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -98,6 +99,7 @@ public class AdminController {	@Autowired
 	}
 		// insert Sessions in SessionOption table
 	 @PostMapping("/sessions")
+	 @PreAuthorize("hasRole('ADMIN')")
 	    public ResponseEntity<String> insertSession(@RequestBody SessionOptionDTO dto) {
 	        try {
 	            if (dto == null || dto.getSessionOption() == null || dto.getSessionOption().trim().isEmpty()) {
@@ -124,6 +126,7 @@ public class AdminController {	@Autowired
 	    }
 		// insert acoommodation in Accommodation table
 	@PostMapping("/api/admin/accommodation")
+	 @PreAuthorize("hasRole('ADMIN')")
 	public ResponseEntity<String> insertAccommodation(@RequestBody Accommodation accommodation) {
 		try {
 			if (accommodation == null) {
@@ -137,6 +140,7 @@ public class AdminController {	@Autowired
 		}
 	}
 	@PostMapping("/api/admin/pricing-config")
+	 @PreAuthorize("hasRole('ADMIN')")
 	public ResponseEntity<?> insertPricingConfig(@RequestBody PricingConfig config) {
 	    try {
 	        // Step 1: Validate PresentationType
@@ -249,6 +253,7 @@ public class AdminController {	@Autowired
 		}
 	}	// get all registration forms
 	@PostMapping("/api/admin/registration-forms")
+	 @PreAuthorize("hasRole('ADMIN')")
 	public ResponseEntity<?> getAllRegistrationForms() {
 		try {
 			return ResponseEntity.ok(adminService.getAllRegistrationForms());
@@ -259,6 +264,7 @@ public class AdminController {	@Autowired
 	
 	// get all abstract form submissions
 	@GetMapping("/api/admin/abstract-submissions")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ResponseEntity<?> getAllAbstractSubmissions() {
 		try {
 			return ResponseEntity.ok(adminService.getAllAbstractSubmissions());
@@ -286,5 +292,6 @@ public class AdminController {	@Autowired
 			return ResponseEntity.status(500).body("Logout failed");
 		}
 	}
+	// write a method to edit 
 	
 }
