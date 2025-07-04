@@ -538,31 +538,298 @@ public class StripeService {
         log.info("🔄 Starting handleCheckoutSessionCompleted processing...");
         
         try {
-            // First try the modern approach with EventDataObjectDeserializer
+            // Use EventDataObjectDeserializer to get the Session object
             EventDataObjectDeserializer dataObjectDeserializer = event.getDataObjectDeserializer();
+            
             if (dataObjectDeserializer.getObject().isPresent()) {
                 Object deserializedObject = dataObjectDeserializer.getObject().get();
                 log.info("📋 Event data object type: {}", deserializedObject.getClass().getSimpleName());
                 
                 if (deserializedObject instanceof Session session) {
                     log.info("✅ Successfully retrieved Session: {}", session.getId());
+                    
+                    // Log key data from the webhook for debugging
+                    log.info("📊 Webhook Session Data:");
+                    log.info("   - Session ID: {}", session.getId());
+                    log.info("   - Amount Total: {} cents", session.getAmountTotal());
+                    log.info("   - Currency: {}", session.getCurrency());
+                    log.info("   - Customer Email: {}", session.getCustomerEmail());
+                    log.info("   - Payment Intent: {}", session.getPaymentIntent());
+                    log.info("   - Payment Status: {}", session.getPaymentStatus());
+                    log.info("   - Session Status: {}", session.getStatus());
+                    
                     processCheckoutSessionCompleted(session);
                 } else {
                     log.error("❌ Event data object is not a Session! Type: {}", deserializedObject.getClass().getName());
+                    
+                    // Fallback: Try to extract session data manually from event
+                    log.info("🔄 Attempting manual session data extraction from event...");
+                    extractAndProcessSessionDataFromEvent(event);
                 }
             } else {
                 log.error("❌ Failed to deserialize checkout.session.completed event data");
-                log.error("❌ Event deserialization failed - unable to process checkout session completion");
+                
+                // Fallback: Try to extract session data manually from event
+                log.info("🔄 Attempting manual session data extraction from event...");
+                extractAndProcessSessionDataFromEvent(event);
             }
         } catch (Exception e) {
             log.error("❌ Error in handleCheckoutSessionCompleted: {}", e.getMessage(), e);
+            
+            // Last resort: Try manual extraction
+            try {
+                log.info("🔄 Last resort: Attempting manual session data extraction...");
+                extractAndProcessSessionDataFromEvent(event);
+            } catch (Exception fallbackException) {
+                log.error("❌ All fallback methods failed: {}", fallbackException.getMessage(), fallbackException);
+            }
         }
         
         log.info("✅ Completed handleCheckoutSessionCompleted processing");
     }
     
     /**
+     * Fallback method to manually extract session data from the event when deserialization fails
+     * This handles the case where EventDataObjectDeserializer doesn't work properly
+     */
+    private void extractAndProcessSessionDataFromEvent(Event event) {
+        try {
+            // Get the raw JSON object from the event
+            com.stripe.model.StripeObject dataObject = event.getDataObjectDeserializer().getObject().orElse(null);
+            
+            if (dataObject == null) {
+                log.error("❌ No data object found in event after manual extraction attempt");
+                return;
+            }
+            
+            // Try to access the session data through the JSON structure
+            String rawJson = dataObject.toJson();
+            log.info("📋 Raw webhook data JSON: {}", rawJson);
+            
+            // Parse key fields manually from the JSON string (basic parsing)
+            String sessionId = extractJsonField(rawJson, "id");
+            String customerEmail = extractJsonField(rawJson, "customer_email");
+            String paymentIntent = extractJsonField(rawJson, "payment_intent");
+            String paymentStatus = extractJsonField(rawJson, "payment_status");
+            String sessionStatus = extractJsonField(rawJson, "status");
+            String currency = extractJsonField(rawJson, "currency");
+            String amountTotalStr = extractJsonField(rawJson, "amount_total");
+            
+            Long amountTotal = null;
+            if (amountTotalStr != null && !amountTotalStr.isEmpty()) {
+                try {
+                    amountTotal = Long.parseLong(amountTotalStr);
+                } catch (NumberFormatException e) {
+                    log.warn("⚠️ Could not parse amount_total: {}", amountTotalStr);
+                }
+            }
+            
+            log.info("📊 Manually Extracted Session Data:");
+            log.info("   - Session ID: {}", sessionId);
+            log.info("   - Customer Email: {}", customerEmail);
+            log.info("   - Payment Intent: {}", paymentIntent);
+            log.info("   - Payment Status: {}", paymentStatus);
+            log.info("   - Session Status: {}", sessionStatus);
+            log.info("   - Currency: {}", currency);
+            log.info("   - Amount Total: {} cents", amountTotal);
+            
+            if (sessionId == null) {
+                log.error("❌ Session ID not found in webhook data");
+                return;
+            }
+            
+            // Process the manually extracted data
+            processCheckoutSessionCompletedManual(sessionId, customerEmail, paymentIntent, 
+                                                paymentStatus, currency, amountTotal);
+            
+        } catch (Exception e) {
+            log.error("❌ Error in manual session data extraction: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Simple JSON field extractor for basic parsing
+     */
+    private String extractJsonField(String json, String fieldName) {
+        try {
+            String searchPattern = "\"" + fieldName + "\":";
+            int startIndex = json.indexOf(searchPattern);
+            if (startIndex == -1) {
+                return null;
+            }
+            
+            startIndex += searchPattern.length();
+            
+            // Skip whitespace
+            while (startIndex < json.length() && Character.isWhitespace(json.charAt(startIndex))) {
+                startIndex++;
+            }
+            
+            if (startIndex >= json.length()) {
+                return null;
+            }
+            
+            // Handle string values (enclosed in quotes)
+            if (json.charAt(startIndex) == '"') {
+                startIndex++; // Skip opening quote
+                int endIndex = json.indexOf('"', startIndex);
+                if (endIndex == -1) {
+                    return null;
+                }
+                return json.substring(startIndex, endIndex);
+            } else {
+                // Handle numeric or other values
+                int endIndex = startIndex;
+                while (endIndex < json.length() && 
+                       json.charAt(endIndex) != ',' && 
+                       json.charAt(endIndex) != '}' && 
+                       json.charAt(endIndex) != ']' &&
+                       !Character.isWhitespace(json.charAt(endIndex))) {
+                    endIndex++;
+                }
+                return json.substring(startIndex, endIndex);
+            }
+        } catch (Exception e) {
+            log.warn("⚠️ Error extracting field '{}' from JSON: {}", fieldName, e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Process checkout session completion using manually extracted data
+     */
+    private void processCheckoutSessionCompletedManual(String sessionId, String customerEmail, 
+                                                     String paymentIntent, String paymentStatus, 
+                                                     String currency, Long amountTotal) {
+        try {
+            log.info("🔄 Processing manually extracted session data for session: {}", sessionId);
+            
+            // Find existing PaymentRecord
+            PaymentRecord paymentRecord = paymentRecordRepository.findBySessionId(sessionId)
+                .orElse(null);
+            
+            if (paymentRecord != null) {
+                log.info("📋 Found existing PaymentRecord ID: {} for session: {}", paymentRecord.getId(), sessionId);
+                
+                // Update existing record with webhook data
+                paymentRecord.setPaymentIntentId(paymentIntent);
+                paymentRecord.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
+                paymentRecord.setPaymentStatus(paymentStatus != null ? paymentStatus : "paid");
+                
+                // Update customer email if it was null before
+                if (paymentRecord.getCustomerEmail() == null && customerEmail != null) {
+                    paymentRecord.setCustomerEmail(customerEmail);
+                }
+                
+                // Update amount if provided and different
+                if (amountTotal != null) {
+                    BigDecimal amountInEuros = BigDecimal.valueOf(amountTotal).divide(BigDecimal.valueOf(100));
+                    if (paymentRecord.getAmountTotal() == null || 
+                        paymentRecord.getAmountTotal().compareTo(amountInEuros) != 0) {
+                        log.info("💰 Updating amount from {} to {} EUR", paymentRecord.getAmountTotal(), amountInEuros);
+                        paymentRecord.setAmountTotal(amountInEuros);
+                    }
+                }
+                
+                // Update currency if provided
+                if (currency != null && paymentRecord.getCurrency() == null) {
+                    paymentRecord.setCurrency(currency);
+                }
+                
+                PaymentRecord savedRecord = paymentRecordRepository.save(paymentRecord);
+                log.info("💾 ✅ Updated PaymentRecord ID: {} for session: {} to COMPLETED status with paymentStatus '{}'", 
+                        savedRecord.getId(), sessionId, savedRecord.getPaymentStatus());
+                
+                // Log the current state for debugging
+                log.info("🔍 PaymentRecord state after manual update: ID={}, Status={}, PaymentStatus={}, PaymentIntentId={}", 
+                        savedRecord.getId(), savedRecord.getStatus(), savedRecord.getPaymentStatus(), savedRecord.getPaymentIntentId());
+                
+                // Link registration after successful payment (pass null for session since we don't have the object)
+                autoRegisterUserAfterPaymentManual(savedRecord, customerEmail);
+                
+            } else {
+                log.warn("⚠️ PaymentRecord not found for session {}, creating new one from webhook data", sessionId);
+                
+                PaymentRecord newRecord = PaymentRecord.builder()
+                        .sessionId(sessionId)
+                        .paymentIntentId(paymentIntent)
+                        .customerEmail(customerEmail)
+                        .amountTotal(amountTotal != null ? 
+                            BigDecimal.valueOf(amountTotal).divide(BigDecimal.valueOf(100)) : null)
+                        .currency(currency != null ? currency : "eur")
+                        .status(PaymentRecord.PaymentStatus.COMPLETED)
+                        .stripeCreatedAt(LocalDateTime.now()) // Use current time since we don't have stripe timestamp
+                        .paymentStatus(paymentStatus != null ? paymentStatus : "paid")
+                        .build();
+
+                PaymentRecord savedRecord = paymentRecordRepository.save(newRecord);
+                log.info("💾 ✅ Created new PaymentRecord ID: {} for session: {} with paymentStatus '{}'", 
+                        savedRecord.getId(), sessionId, savedRecord.getPaymentStatus());
+                
+                // Link registration after successful payment
+                autoRegisterUserAfterPaymentManual(savedRecord, customerEmail);
+            }
+        } catch (Exception e) {
+            log.error("❌ Error processing manual checkout session completion for session {}: {}", sessionId, e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Auto-register user after payment using manual data extraction
+     */
+    private void autoRegisterUserAfterPaymentManual(PaymentRecord paymentRecord, String customerEmail) {
+        log.info("🔄 Manual verification of association for payment record ID: {}", paymentRecord.getId());
+        
+        try {
+            // Use the existing auto-registration logic but with manual email extraction
+            if (customerEmail == null) {
+                customerEmail = paymentRecord.getCustomerEmail();
+            }
+            
+            if (customerEmail == null) {
+                log.error("❌ CRITICAL: Cannot verify association - customer email not found for payment record ID: {}", paymentRecord.getId());
+                return;
+            }
+            
+            // Find the most recent registration form for this customer email
+            RegistrationForm existingRegistration = registrationFormRepository.findTopByEmailOrderByIdDesc(customerEmail);
+            
+            if (existingRegistration == null) {
+                log.error("❌ CRITICAL: No registration form found for email: {} (payment record ID: {})", 
+                        customerEmail, paymentRecord.getId());
+                return;
+            }
+            
+            // Check if association already exists
+            if (paymentRecord.getRegistrationForm() != null) {
+                log.info("✅ Payment record ID: {} already has registration form ID: {} associated", 
+                        paymentRecord.getId(), paymentRecord.getRegistrationForm().getId());
+                return;
+            }
+            
+            // Establish the bidirectional association
+            log.info("🔗 Creating association between registration form ID: {} and payment record ID: {}", 
+                    existingRegistration.getId(), paymentRecord.getId());
+            
+            existingRegistration.setPaymentRecord(paymentRecord);
+            paymentRecord.setRegistrationForm(existingRegistration);
+            
+            // Save both entities to ensure the relationship is persisted
+            registrationFormRepository.save(existingRegistration);
+            paymentRecordRepository.save(paymentRecord);
+            
+            log.info("✅ Successfully linked registration form ID: {} to payment record ID: {}", 
+                    existingRegistration.getId(), paymentRecord.getId());
+            
+        } catch (Exception e) {
+            log.error("❌ Error in manual registration linking for payment record ID {}: {}", 
+                    paymentRecord.getId(), e.getMessage(), e);
+        }
+    }
+    
+    /**
      * Process checkout session completed logic (extracted for reuse)
+     * Updates PaymentRecord based on Stripe webhook data structure
      */
     private void processCheckoutSessionCompleted(Session session) {
         LocalDateTime completedTime = convertToLocalDateTime(session.getCreated());
@@ -575,7 +842,7 @@ public class StripeService {
         log.info("📋 Session Status from Stripe: {}", session.getStatus());
         log.info("🔗 Payment Intent ID: {}", session.getPaymentIntent());
 
-        // Update existing record instead of creating new one
+        // Update existing record based on webhook data structure
         try {
             PaymentRecord paymentRecord = paymentRecordRepository.findBySessionId(session.getId())
                 .orElse(null);
@@ -583,34 +850,59 @@ public class StripeService {
             if (paymentRecord != null) {
                 log.info("📋 Found existing PaymentRecord ID: {} for session: {}", paymentRecord.getId(), session.getId());
                 
-                // Update existing record with actual Stripe values
+                // Update record with webhook data - following the sample structure you provided
+                // Sample: "payment_intent": "pi_1PABC1SDxA1b23dEfGHIjklm"
                 paymentRecord.setPaymentIntentId(session.getPaymentIntent());
-                paymentRecord.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
                 
-                // Use actual payment status from Stripe webhook (should be "paid")
+                // Sample: "status": "complete" indicates successful payment
+                if ("complete".equals(session.getStatus())) {
+                    paymentRecord.setStatus(PaymentRecord.PaymentStatus.COMPLETED);
+                }
+                
+                // Sample: "payment_status": "paid" indicates payment was successful
                 String stripePaymentStatus = session.getPaymentStatus();
                 paymentRecord.setPaymentStatus(stripePaymentStatus != null ? stripePaymentStatus : "paid");
                 
-                // Update customer email if it was null before
+                // Update customer email from webhook data
+                // Sample: "customer_email": "customer@example.com"
                 String customerEmail = session.getCustomerDetails() != null ? 
                     session.getCustomerDetails().getEmail() : session.getCustomerEmail();
                 if (paymentRecord.getCustomerEmail() == null && customerEmail != null) {
                     paymentRecord.setCustomerEmail(customerEmail);
                 }
                 
+                // Update amount from webhook data
+                // Sample: "amount_total": 4999 (in cents)
+                if (session.getAmountTotal() != null) {
+                    BigDecimal webhookAmountInEuros = BigDecimal.valueOf(session.getAmountTotal()).divide(BigDecimal.valueOf(100));
+                    if (paymentRecord.getAmountTotal() == null || 
+                        paymentRecord.getAmountTotal().compareTo(webhookAmountInEuros) != 0) {
+                        log.info("💰 Updating amount from {} to {} EUR based on webhook data", 
+                                paymentRecord.getAmountTotal(), webhookAmountInEuros);
+                        paymentRecord.setAmountTotal(webhookAmountInEuros);
+                    }
+                }
+                
+                // Update currency from webhook data
+                // Sample: "currency": "usd" (but we convert to EUR for our system)
+                if (session.getCurrency() != null && paymentRecord.getCurrency() == null) {
+                    paymentRecord.setCurrency(session.getCurrency());
+                }
+                
                 PaymentRecord savedRecord = paymentRecordRepository.save(paymentRecord);
                 log.info("💾 ✅ Updated PaymentRecord ID: {} for session: {} to COMPLETED status with paymentStatus '{}'", 
                         savedRecord.getId(), session.getId(), savedRecord.getPaymentStatus());
                 
-                // Log the current state for debugging
-                log.info("🔍 PaymentRecord state after update: ID={}, Status={}, PaymentStatus={}, PaymentIntentId={}", 
-                        savedRecord.getId(), savedRecord.getStatus(), savedRecord.getPaymentStatus(), savedRecord.getPaymentIntentId());
+                // Log the final state for debugging
+                log.info("🔍 PaymentRecord final state: ID={}, Status={}, PaymentStatus={}, PaymentIntentId={}, Amount={} EUR", 
+                        savedRecord.getId(), savedRecord.getStatus(), savedRecord.getPaymentStatus(), 
+                        savedRecord.getPaymentIntentId(), savedRecord.getAmountTotal());
                 
-                // 🚀 Auto-register user after successful payment
+                // Link to registration form after successful payment
                 autoRegisterUserAfterPayment(savedRecord, session);
                 
             } else {
-                log.warn("⚠️ PaymentRecord not found for session {}, creating new one", session.getId());
+                log.warn("⚠️ PaymentRecord not found for session {}, creating new one based on webhook data", session.getId());
                 
                 String customerEmail = session.getCustomerDetails() != null ? 
                     session.getCustomerDetails().getEmail() : session.getCustomerEmail();
@@ -621,19 +913,19 @@ public class StripeService {
                         .paymentIntentId(session.getPaymentIntent())
                         .customerEmail(customerEmail)
                         .amountTotal(session.getAmountTotal() != null ? 
-                            BigDecimal.valueOf(session.getAmountTotal()).divide(BigDecimal.valueOf(100)) : null) // Convert cents to euros
+                            BigDecimal.valueOf(session.getAmountTotal()).divide(BigDecimal.valueOf(100)) : null)
                         .currency(session.getCurrency())
                         .status(PaymentRecord.PaymentStatus.COMPLETED)
                         .stripeCreatedAt(completedTime)
                         .stripeExpiresAt(convertToLocalDateTime(session.getExpiresAt()))
-                        .paymentStatus(stripePaymentStatus != null ? stripePaymentStatus : "paid") // Use actual Stripe payment status
+                        .paymentStatus(stripePaymentStatus != null ? stripePaymentStatus : "paid")
                         .build();
 
                 PaymentRecord savedRecord = paymentRecordRepository.save(record);
                 log.info("💾 ✅ Created new PaymentRecord ID: {} for session: {} with paymentStatus '{}'", 
                         savedRecord.getId(), session.getId(), savedRecord.getPaymentStatus());
                 
-                // 🚀 Auto-register user after successful payment
+                // Link to registration form after successful payment
                 autoRegisterUserAfterPayment(savedRecord, session);
             }
         } catch (Exception e) {
