@@ -38,16 +38,18 @@ public class SecurityConfig {
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
-    }    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
+    }    
+    @Bean
+      public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOriginPatterns(Arrays.asList(
             "https://renewable-meet-2026.vercel.app",
-            "https://*.vercel.app", 
+            "https://*.vercel.app", // Allow all Vercel subdomains
             "http://localhost:*",
             "https://localhost:*",
-            "https://stripe.zynmarketing.xyz" , 
-            "http://147.93.102.131:8901"
+            "https://stripe.zynmarketing.xyz",
+              "http://147.93.102.131:8901"
+           
         ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
