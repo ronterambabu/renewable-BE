@@ -185,4 +185,29 @@ public class PaymentRecordService {
             return totalAmountInEuros.doubleValue(); 
         }
     }
+
+    /**
+     * Find all payment records
+     */
+    @Transactional(readOnly = true)
+    public List<PaymentRecord> findAllPayments() {
+        return paymentRecordRepository.findAllByOrderByCreatedAtDesc();
+    }
+
+    /**
+     * Find payment record by ID
+     */
+    @Transactional(readOnly = true)
+    public Optional<PaymentRecord> findById(Long id) {
+        return paymentRecordRepository.findById(id);
+    }
+
+    /**
+     * Find recent payment records (last 24 hours)
+     */
+    @Transactional(readOnly = true)
+    public List<PaymentRecord> findRecentPayments() {
+        LocalDateTime yesterday = LocalDateTime.now().minusHours(24);
+        return paymentRecordRepository.findByCreatedAtAfterOrderByCreatedAtDesc(yesterday);
+    }
 }

@@ -233,4 +233,128 @@ public class PaymentRecordController {
             "status", "authenticated"
         ));
     }
+
+    /**
+     * Get all payment records with pagination - ADMIN ONLY
+     * Perfect for dashboard main table view
+     */
+    @GetMapping("/all")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<PaymentResponseDTO>> getAllPayments() {
+        String adminUser = getCurrentAdminUser();
+        logger.info("ADMIN {}: Retrieving all payment records", adminUser);
+        
+        try {
+            List<PaymentRecord> payments = paymentRecordService.findAllPayments();
+            List<PaymentResponseDTO> response = payments.stream()
+                .map(PaymentResponseDTO::fromEntity)
+                .collect(java.util.stream.Collectors.toList());
+            logger.info("ADMIN {}: Retrieved {} total payment records", adminUser, payments.size());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("ADMIN {}: Error retrieving all payments: {}", adminUser, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Get recent payment records (last 24 hours) - ADMIN ONLY
+     * Perfect for dashboard recent activity widget
+     */
+    @GetMapping("/recent")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<PaymentResponseDTO>> getRecentPayments() {
+        String adminUser = getCurrentAdminUser();
+        logger.info("ADMIN {}: Retrieving recent payment records", adminUser);
+        
+        try {
+            List<PaymentRecord> payments = paymentRecordService.findRecentPayments();
+            List<PaymentResponseDTO> response = payments.stream()
+                .map(PaymentResponseDTO::fromEntity)
+                .collect(java.util.stream.Collectors.toList());
+            logger.info("ADMIN {}: Retrieved {} recent payment records", adminUser, payments.size());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("ADMIN {}: Error retrieving recent payments: {}", adminUser, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Get completed payments with registration details - ADMIN ONLY
+     * Shows successful payments with associated registration information
+     */
+    @GetMapping("/completed-with-registrations")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> getCompletedPaymentsWithRegistrations() {
+        String adminUser = getCurrentAdminUser();
+        logger.info("ADMIN {}: Retrieving completed payments with registration details", adminUser);
+        
+        try {
+            List<PaymentRecord> completedPayments = paymentRecordService.findByStatus(PaymentStatus.COMPLETED);
+            
+            List<Map<String, Object>> response = completedPayments.stream()
+                .map(payment -> {
+                    Map<String, Object> paymentWithRegistration = Map.of(
+                        "paymentId", payment.getId(),
+                        "sessionId", payment.getSessionId(),
+                        "customerEmail", payment.getCustomerEmail(),
+                        "amountTotal", payment.getAmountTotal(),
+                        "currency", payment.getCurrency(),
+                        "paymentStatus", payment.getPaymentStatus(),
+                        "createdAt", payment.getCreatedAt(),
+                        "hasRegistration", payment.getRegistrationForm() != null,
+                        "registrationId", payment.getRegistrationForm() != null ? 
+                            payment.getRegistrationForm().getId() : null
+                    );
+                    return paymentWithRegistration;
+                })
+                .collect(java.util.stream.Collectors.toList());
+                
+            logger.info("ADMIN {}: Retrieved {} completed payments with registration status", 
+                       adminUser, completedPayments.size());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("ADMIN {}: Error retrieving completed payments with registrations: {}", 
+                        adminUser, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                "error", "Error retrieving payment and registration data",
+                "message", e.getMessage()
+            ));
+        }
+    }
+
+    /**
+     * Get payment record by ID - ADMIN ONLY
+     * For detailed view in dashboard
+     */
+    @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> getPaymentById(@PathVariable Long id) {
+        String adminUser = getCurrentAdminUser();
+        logger.info("ADMIN {}: Retrieving payment record by ID: {}", adminUser, id);
+        
+        try {
+            Optional<PaymentRecord> payment = paymentRecordService.findById(id);
+            
+            if (payment.isPresent()) {
+                PaymentResponseDTO response = PaymentResponseDTO.fromEntity(payment.get());
+                logger.info("ADMIN {}: Found payment record ID: {}", adminUser, id);
+                return ResponseEntity.ok(response);
+            } else {
+                logger.warn("ADMIN {}: Payment record not found for ID: {}", adminUser, id);
+                return ResponseEntity.ok().body(Map.of(
+                    "message", "Payment record not found",
+                    "id", id,
+                    "found", false
+                ));
+            }
+        } catch (Exception e) {
+            logger.error("ADMIN {}: Error retrieving payment ID {}: {}", adminUser, id, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                "error", "Error retrieving payment record",
+                "message", e.getMessage()
+            ));
+        }
+    }
 }

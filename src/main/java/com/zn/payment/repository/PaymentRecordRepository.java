@@ -48,4 +48,9 @@ public interface PaymentRecordRepository extends JpaRepository<PaymentRecord, Lo
     
     @Query("SELECT pr FROM PaymentRecord pr WHERE pr.amountTotal != pr.pricingConfig.totalPrice")
     List<PaymentRecord> findPaymentsWithAmountMismatch();
+    
+    // Additional methods for admin dashboard
+    List<PaymentRecord> findAllByOrderByCreatedAtDesc();
+    
+    List<PaymentRecord> findByCreatedAtAfterOrderByCreatedAtDesc(LocalDateTime createdAt);
 }
