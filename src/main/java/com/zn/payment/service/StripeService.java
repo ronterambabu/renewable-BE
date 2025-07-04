@@ -594,52 +594,148 @@ public class StripeService {
      */
     private void extractAndProcessSessionDataFromEvent(Event event) {
         try {
-            log.info("🔄 Attempting to extract session data manually from webhook event...");
+            log.info("🔄 Starting manual extraction from Event object...");
             
-            // Access the event data directly using Stripe's Event API
-            // Convert the Data object to a map by accessing its raw JSON
-            String eventJson = event.toJson();
-            log.info("📋 Raw event JSON available: {}", eventJson != null && !eventJson.isEmpty());
+            // Try to get the raw JSON string from the event directly
+            String rawEventJson = event.toJson();
+            log.info("📋 Full Event JSON: {}", rawEventJson);
             
-            // Try to get the data object and convert it to JSON for parsing
-            Object dataObject = event.getDataObjectDeserializer().getObject().orElse(null);
-            if (dataObject != null) {
-                String dataJson = dataObject.toString();
-                log.info("📋 Data object JSON: {}", dataJson);
+            // Extract the data object from the event JSON
+            String dataObjectJson = extractDataObjectFromEventJson(rawEventJson);
+            
+            if (dataObjectJson != null) {
+                log.info("📋 Extracted data object JSON: {}", dataObjectJson);
                 
-                // For now, let's try a simpler approach - retrieve the session directly
-                // We'll extract the session ID from the event and fetch it from Stripe
-                String eventType = event.getType();
-                String eventId = event.getId();
+                // Parse key fields manually from the data object JSON
+                String sessionId = extractJsonField(dataObjectJson, "id");
+                String customerEmail = extractJsonField(dataObjectJson, "customer_email");
+                String paymentIntent = extractJsonField(dataObjectJson, "payment_intent");
+                String paymentStatus = extractJsonField(dataObjectJson, "payment_status");
+                String sessionStatus = extractJsonField(dataObjectJson, "status");
+                String currency = extractJsonField(dataObjectJson, "currency");
+                String amountTotalStr = extractJsonField(dataObjectJson, "amount_total");
                 
-                log.info("📋 Event details - ID: {}, Type: {}", eventId, eventType);
-                
-                // Try to access the session through the data property
-                if (dataObject instanceof com.stripe.model.checkout.Session session) {
-                    log.info("✅ Successfully cast data object to Session: {}", session.getId());
-                    processCheckoutSessionCompleted(session);
-                } else {
-                    log.warn("⚠️ Data object is not a Session, type: {}", dataObject.getClass().getName());
-                    
-                    // Last resort: try to extract session ID and fetch from Stripe API
-                    if (dataJson.contains("\"id\":")) {
-                        String sessionId = extractSessionIdFromJson(dataJson);
-                        if (sessionId != null) {
-                            log.info("🔄 Extracted session ID: {}, fetching from Stripe API...", sessionId);
-                            fetchAndProcessSession(sessionId);
-                        } else {
-                            log.error("❌ Could not extract session ID from data object");
-                        }
-                    } else {
-                        log.error("❌ No session ID found in data object JSON");
+                Long amountTotal = null;
+                if (amountTotalStr != null && !amountTotalStr.isEmpty()) {
+                    try {
+                        amountTotal = Long.parseLong(amountTotalStr);
+                    } catch (NumberFormatException e) {
+                        log.warn("⚠️ Could not parse amount_total: {}", amountTotalStr);
                     }
                 }
+                
+                log.info("📊 Manually Extracted Session Data:");
+                log.info("   - Session ID: {}", sessionId);
+                log.info("   - Customer Email: {}", customerEmail);
+                log.info("   - Payment Intent: {}", paymentIntent);
+                log.info("   - Payment Status: {}", paymentStatus);
+                log.info("   - Session Status: {}", sessionStatus);
+                log.info("   - Currency: {}", currency);
+                log.info("   - Amount Total: {} cents", amountTotal);
+                
+                if (sessionId == null) {
+                    log.error("❌ Session ID not found in webhook data");
+                    return;
+                }
+                
+                // Process the manually extracted data
+                processCheckoutSessionCompletedManual(sessionId, customerEmail, paymentIntent, 
+                                                    paymentStatus, currency, amountTotal);
             } else {
-                log.error("❌ No data object found in event");
+                log.error("❌ No data object found in event after manual extraction attempt");
             }
             
         } catch (Exception e) {
             log.error("❌ Error in manual session data extraction: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Extract the data.object JSON from the full event JSON
+     */
+    private String extractDataObjectFromEventJson(String eventJson) {
+        try {
+            // Find the "data" object in the event JSON
+            String dataPattern = "\"data\":";
+            int dataStart = eventJson.indexOf(dataPattern);
+            if (dataStart == -1) {
+                log.error("❌ No 'data' field found in event JSON");
+                return null;
+            }
+            
+            dataStart += dataPattern.length();
+            
+            // Skip whitespace
+            while (dataStart < eventJson.length() && Character.isWhitespace(eventJson.charAt(dataStart))) {
+                dataStart++;
+            }
+            
+            if (dataStart >= eventJson.length() || eventJson.charAt(dataStart) != '{') {
+                log.error("❌ Invalid data object structure in event JSON");
+                return null;
+            }
+            
+            // Find the matching closing brace for the data object
+            int braceCount = 0;
+            int dataEnd = dataStart;
+            
+            for (int i = dataStart; i < eventJson.length(); i++) {
+                char c = eventJson.charAt(i);
+                if (c == '{') {
+                    braceCount++;
+                } else if (c == '}') {
+                    braceCount--;
+                    if (braceCount == 0) {
+                        dataEnd = i + 1;
+                        break;
+                    }
+                }
+            }
+            
+            String dataObjectJson = eventJson.substring(dataStart, dataEnd);
+            
+            // Now extract the "object" field from the data object
+            String objectPattern = "\"object\":";
+            int objectStart = dataObjectJson.indexOf(objectPattern);
+            if (objectStart == -1) {
+                log.error("❌ No 'object' field found in data JSON");
+                return null;
+            }
+            
+            objectStart += objectPattern.length();
+            
+            // Skip whitespace
+            while (objectStart < dataObjectJson.length() && Character.isWhitespace(dataObjectJson.charAt(objectStart))) {
+                objectStart++;
+            }
+            
+            if (objectStart >= dataObjectJson.length() || dataObjectJson.charAt(objectStart) != '{') {
+                log.error("❌ Invalid object structure in data JSON");
+                return null;
+            }
+            
+            // Find the matching closing brace for the object
+            braceCount = 0;
+            int objectEnd = objectStart;
+            
+            for (int i = objectStart; i < dataObjectJson.length(); i++) {
+                char c = dataObjectJson.charAt(i);
+                if (c == '{') {
+                    braceCount++;
+                } else if (c == '}') {
+                    braceCount--;
+                    if (braceCount == 0) {
+                        objectEnd = i + 1;
+                        break;
+                    }
+                }
+            }
+            
+            return dataObjectJson.substring(objectStart, objectEnd);
+            
+        } catch (Exception e) {
+            log.error("❌ Error extracting data object from event JSON: {}", e.getMessage());
+            return null;
         }
     }
     
@@ -1307,42 +1403,5 @@ public class StripeService {
         }
     }
 
-    /**
-     * Extract session ID from JSON string using simple string parsing
-     */
-    private String extractSessionIdFromJson(String json) {
-        try {
-            // Look for "id":"cs_test_..." pattern
-            String pattern = "\"id\":\"";
-            int startIndex = json.indexOf(pattern);
-            if (startIndex != -1) {
-                startIndex += pattern.length();
-                int endIndex = json.indexOf("\"", startIndex);
-                if (endIndex != -1) {
-                    String sessionId = json.substring(startIndex, endIndex);
-                    if (sessionId.startsWith("cs_")) {
-                        return sessionId;
-                    }
-                }
-            }
-            return null;
-        } catch (Exception e) {
-            log.error("Error extracting session ID from JSON: {}", e.getMessage());
-            return null;
-        }
-    }
-    
-    /**
-     * Fetch session from Stripe API and process it
-     */
-    private void fetchAndProcessSession(String sessionId) {
-        try {
-            Stripe.apiKey = secretKey;
-            Session session = Session.retrieve(sessionId);
-            log.info("✅ Successfully fetched session from Stripe API: {}", sessionId);
-            processCheckoutSessionCompleted(session);
-        } catch (Exception e) {
-            log.error("❌ Error fetching session from Stripe API: {}", e.getMessage(), e);
-        }
-    }
+    // ...existing code...
 }
