@@ -10,6 +10,7 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -188,6 +189,7 @@ public class AdminController {	@Autowired
 	                withAcc.setPresentationType(savedPresentationType);
 	                withAcc.setAccommodationOption(savedAccommodation);
 	                withAcc.setProcessingFeePercent(config.getProcessingFeePercent());
+	                withAcc.setTotalPrice(config.getTotalPrice()); // Fix: set total price if needed
 	                adminService.insertPricingConfig(withAcc);
 	                insertedWithAccommodation = true;
 	            }
@@ -203,6 +205,7 @@ public class AdminController {	@Autowired
 	            withoutAcc.setPresentationType(savedPresentationType);
 	            withoutAcc.setAccommodationOption(null);
 	            withoutAcc.setProcessingFeePercent(config.getProcessingFeePercent());
+	            withoutAcc.setTotalPrice(config.getTotalPrice()); // Fix: set total price if needed
 	            adminService.insertPricingConfig(withoutAcc);
 	            insertedWithoutAccommodation = true;
 	        }
