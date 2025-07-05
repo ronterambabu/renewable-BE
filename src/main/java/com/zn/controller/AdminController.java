@@ -292,6 +292,44 @@ public class AdminController {	@Autowired
 			return ResponseEntity.status(500).body("Logout failed");
 		}
 	}
-	// write a method to edit 
+	// write a method to edit accomidation combo 
+	 
+
 	
+	// Edit accommodation combo
+    @PostMapping("/api/admin/accommodation/edit/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> editAccommodation(@PathVariable Long id, @RequestBody Accommodation updatedAccommodation) {
+        try {
+            Optional<Accommodation> optionalAccommodation = accommodationRepository.findById(id);
+            if (optionalAccommodation.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Accommodation not found with ID: " + id);
+            }
+            Accommodation accommodation = optionalAccommodation.get();
+            // Update fields
+            accommodation.setNights(updatedAccommodation.getNights());
+            accommodation.setGuests(updatedAccommodation.getGuests());
+            accommodation.setPrice(updatedAccommodation.getPrice());
+            accommodationRepository.save(accommodation);
+            return ResponseEntity.ok("Accommodation updated successfully.");
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to update accommodation: " + e.getMessage());
+        }
+    }
+
+    // Delete accommodation combo
+    @PostMapping("/api/admin/accommodation/delete/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> deleteAccommodation(@PathVariable Long id) {
+        try {
+            Optional<Accommodation> optionalAccommodation = accommodationRepository.findById(id);
+            if (optionalAccommodation.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Accommodation not found with ID: " + id);
+            }
+            accommodationRepository.deleteById(id);
+            return ResponseEntity.ok("Accommodation deleted successfully.");
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to delete accommodation: " + e.getMessage());
+        }
+    }
 }
