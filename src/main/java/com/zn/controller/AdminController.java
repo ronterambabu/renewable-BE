@@ -316,9 +316,18 @@ public class AdminController {	@Autowired
             accommodation.setGuests(updatedAccommodation.getGuests());
             accommodation.setPrice(updatedAccommodation.getPrice());
             accommodationRepository.save(accommodation);
-            return ResponseEntity.ok("Accommodation updated successfully.");
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to update accommodation: " + e.getMessage());
+
+            // Update all related PricingConfig rows
+            var pricingConfigs = pricingConfigRepository.findByAccommodationOption(accommodation);
+            for (PricingConfig config : pricingConfigs) {
+                // This will trigger @PreUpdate and recalculate totalPrice
+                config.setAccommodationOption(accommodation); // re-set to trigger update
+                pricingConfigRepository.save(config);
+            }
+
+            return ResponseEntity.ok("Accommodation and related pricing configs updated successfully.");
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to update accommodation: " + ex.getMessage());
         }
     }
 
@@ -361,11 +370,38 @@ public class AdminController {	@Autowired
 			PresentationType type = optionalType.get();
 			type.setPrice(price);
 			presentationTypeRepository.save(type);
-			return ResponseEntity.ok("Presentation type updated successfully.");
-		} catch (Exception e) {
-			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to update presentation type: " + e.getMessage());
+
+			// Update all related PricingConfig rows
+			var pricingConfigs = pricingConfigRepository.findByPresentationType(type);
+			for (PricingConfig config : pricingConfigs) {
+				// This will trigger @PreUpdate and recalculate totalPrice
+				config.setPresentationType(type); // re-set to trigger update
+				pricingConfigRepository.save(config);
+			}
+
+			return ResponseEntity.ok("Presentation type and related pricing configs updated successfully.");
+		} catch (Exception ex) {
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to update presentation type: " + ex.getMessage());
 		}
 	}
+
+	// Recalculate totalPrice for all PricingConfig rows
+    @PostMapping("/api/admin/pricing-config/recalculate-all")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<?> recalculateAllPricingConfigs() {
+        try {
+            Iterable<PricingConfig> allConfigs = pricingConfigRepository.findAll();
+            int updatedCount = 0;
+            for (PricingConfig config : allConfigs) {
+                // Re-save to trigger @PreUpdate and recalculate totalPrice
+                pricingConfigRepository.save(config);
+                updatedCount++;
+            }
+            return ResponseEntity.ok("Recalculated totalPrice for " + updatedCount + " pricing configs.");
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to recalculate pricing configs: " + e.getMessage());
+        }
+    }
 
 
 }

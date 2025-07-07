@@ -53,5 +53,9 @@ public interface IPricingConfigRepository extends JpaRepository<PricingConfig, L
 		    @Param("nights") int nights,
 		    @Param("guests") int guests);
 
+	 // Find all configs by presentation type
+	    List<PricingConfig> findByPresentationType(PresentationType presentationType);
 
+	    // Find all configs by accommodation option
+	    List<PricingConfig> findByAccommodationOption(Accommodation accommodation);
 }
