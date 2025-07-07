@@ -320,8 +320,8 @@ public class AdminController {	@Autowired
             // Update all related PricingConfig rows
             var pricingConfigs = pricingConfigRepository.findByAccommodationOption(accommodation);
             for (PricingConfig config : pricingConfigs) {
-                // This will trigger @PreUpdate and recalculate totalPrice
-                config.setAccommodationOption(accommodation); // re-set to trigger update
+                // Force recalculation of totalPrice
+                config.calculateTotalPrice();
                 pricingConfigRepository.save(config);
             }
 
@@ -374,8 +374,8 @@ public class AdminController {	@Autowired
 			// Update all related PricingConfig rows
 			var pricingConfigs = pricingConfigRepository.findByPresentationType(type);
 			for (PricingConfig config : pricingConfigs) {
-				// This will trigger @PreUpdate and recalculate totalPrice
-				config.setPresentationType(type); // re-set to trigger update
+				// Force recalculation of totalPrice
+				config.calculateTotalPrice();
 				pricingConfigRepository.save(config);
 			}
 
