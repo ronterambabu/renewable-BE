@@ -341,6 +341,7 @@ public class AdminController {	@Autowired
 
 	// get all presentation types
 	@GetMapping("/api/admin/presentation-types")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ResponseEntity<?> getAllPresentationTypes() {
 		try {
 			return ResponseEntity.ok(presentationTypeRepository.findAll());
@@ -350,6 +351,7 @@ public class AdminController {	@Autowired
 	}
 	// edit presentation type
 	@PostMapping("/api/admin/presentation-type/edit/{id}/{price}")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ResponseEntity<?> editPresentationType(@PathVariable Long id, @PathVariable BigDecimal price) {
 		try {
 			Optional<PresentationType> optionalType = presentationTypeRepository.findById(id);
@@ -364,6 +366,6 @@ public class AdminController {	@Autowired
 			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to update presentation type: " + e.getMessage());
 		}
 	}
-	
+
 
 }
