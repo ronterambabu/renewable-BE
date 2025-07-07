@@ -1,5 +1,6 @@
 package com.zn.controller;
 
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -31,7 +32,7 @@ import com.zn.repository.IAccommodationRepo;
 import com.zn.repository.IPresentationTypeRepo;
 import com.zn.security.JwtUtil;
 import com.zn.service.AdminService;
-
+import java.math.BigDecimal;
 import jakarta.servlet.http.HttpServletResponse;
 
 @RestController
@@ -112,7 +113,8 @@ public class AdminController {	@Autowired
 	        } catch (Exception e) {
 	            throw new DataProcessingException("Failed to insert session: " + e.getMessage(), e);
 	        }
-	    }	    @PostMapping("/interested-in")
+	    }	    
+		@PostMapping("/interested-in")
 	    public ResponseEntity<String> insertInterestedInOption(@RequestBody InterestedInOptionDTO dto) {
 	        try {
 	            if (dto == null || dto.getInterestedInOption() == null || dto.getInterestedInOption().trim().isEmpty()) {
@@ -324,6 +326,7 @@ public class AdminController {	@Autowired
     @PostMapping("/api/admin/accommodation/delete/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> deleteAccommodation(@PathVariable Long id) {
+
         try {
             Optional<Accommodation> optionalAccommodation = accommodationRepository.findById(id);
             if (optionalAccommodation.isEmpty()) {
@@ -335,4 +338,32 @@ public class AdminController {	@Autowired
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to delete accommodation: " + e.getMessage());
         }
     }
+
+	// get all presentation types
+	@GetMapping("/api/admin/presentation-types")
+	public ResponseEntity<?> getAllPresentationTypes() {
+		try {
+			return ResponseEntity.ok(presentationTypeRepository.findAll());
+		} catch (Exception e) {
+			throw new DataProcessingException("Failed to retrieve presentation types: " + e.getMessage(), e);
+		}
+	}
+	// edit presentation type
+	@PostMapping("/api/admin/presentation-type/edit/{id}/{price}")
+	public ResponseEntity<?> editPresentationType(@PathVariable Long id, @PathVariable BigDecimal price) {
+		try {
+			Optional<PresentationType> optionalType = presentationTypeRepository.findById(id);
+			if (optionalType.isEmpty()) {
+				return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Presentation type not found with ID: " + id);
+			}
+			PresentationType type = optionalType.get();
+			type.setPrice(price);
+			presentationTypeRepository.save(type);
+			return ResponseEntity.ok("Presentation type updated successfully.");
+		} catch (Exception e) {
+			return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to update presentation type: " + e.getMessage());
+		}
+	}
+	
+
 }
