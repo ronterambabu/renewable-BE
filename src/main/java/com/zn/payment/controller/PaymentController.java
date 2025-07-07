@@ -18,14 +18,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
-import com.zn.entity.RegistrationForm;
 import com.zn.entity.PricingConfig;
+import com.zn.entity.RegistrationForm;
 import com.zn.payment.dto.CheckoutRequest;
 import com.zn.payment.dto.PaymentResponseDTO;
 import com.zn.payment.entity.PaymentRecord.PaymentStatus;
 import com.zn.payment.service.StripeService;
-import com.zn.repository.IRegistrationFormRepository;
 import com.zn.repository.IPricingConfigRepository;
+import com.zn.repository.IRegistrationFormRepository;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -98,16 +98,6 @@ public class PaymentController {
                     .body(errorResponse);
         }
         
-        // Validate required fields for EUR payment (amounts come in euros, not cents)
-        if (request.getUnitAmount() == null || request.getUnitAmount() <= 0) {
-            log.error("Invalid unitAmount: {}. Must be positive value in euros", request.getUnitAmount());
-            PaymentResponseDTO errorResponse = new PaymentResponseDTO();
-            errorResponse.setStatus(PaymentStatus.FAILED);
-            errorResponse.setPaymentStatus("invalid_amount_must_be_positive_euros");
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(errorResponse);
-        }
-        
         if (request.getQuantity() == null || request.getQuantity() <= 0) {
             log.error("Invalid quantity: {}. Must be positive value", request.getQuantity());
             PaymentResponseDTO errorResponse = new PaymentResponseDTO();
@@ -117,21 +107,18 @@ public class PaymentController {
                     .body(errorResponse);
         }
         
-        // Convert euro amounts to cents for Stripe API (Stripe expects cents)
-        Long unitAmountInCents = (long) (request.getUnitAmount() * 100);
-        request.setUnitAmount(unitAmountInCents); // Convert euros to cents
-        
-        log.info("✅ Request validation passed: {} EUR converted to {} cents, quantity: {}", 
-                request.getUnitAmount() / 100.0, request.getUnitAmount(), request.getQuantity());
-         
-        // Set pricingConfigId in the request object (now mandatory)
-        request.setPricingConfigId(pricingConfigId);
-        log.info("Setting mandatory pricingConfigId: {}", pricingConfigId);
-        
+        // Always use backend value for payment amount
         try {
-            // Get the pricing config to link to the registration form
             PricingConfig pricingConfig = pricingConfigRepository.findById(pricingConfigId)
                     .orElseThrow(() -> new IllegalArgumentException("Pricing config not found with ID: " + pricingConfigId));
+            java.math.BigDecimal backendTotalPrice = pricingConfig.getTotalPrice();
+            Long unitAmountInCents = backendTotalPrice.multiply(new java.math.BigDecimal(100)).longValue();
+            request.setUnitAmount(unitAmountInCents); // Stripe expects cents
+            log.info("Using backend total price for payment: {} EUR ({} cents)", backendTotalPrice, unitAmountInCents);
+            
+            // Set pricingConfigId in the request object (now mandatory)
+            request.setPricingConfigId(pricingConfigId);
+            log.info("Setting mandatory pricingConfigId: {}", pricingConfigId);
             
             // Create a complete registration form with all user data from checkout request
             RegistrationForm registrationForm = new RegistrationForm();
