@@ -13,7 +13,7 @@ import com.zn.service.EmailService;
 
 @RestController
 @RequestMapping("/api/contact")
-@CrossOrigin
+@CrossOrigin(origins = "*") // Allow all origins for CORS
 public class ContactController {
 
     @Autowired
