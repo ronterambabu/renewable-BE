@@ -29,6 +29,8 @@ import jakarta.servlet.http.HttpServletRequest;
 public class DiscountsService {
       @Value("${stripe.api.secret.key}")
     private String secretKey;
+      @Value("${stripe.discount.webhook}")
+      private String DiscountWebhook;
 
     @Autowired
     private DiscountsRepository discountsRepository;
@@ -90,15 +92,15 @@ public class DiscountsService {
             // Set Stripe details after session creation
             discount.setSessionId(session.getId());
             discount.setPaymentIntentId(session.getPaymentIntent());
-            // Robust enum mapping for Stripe status
-            discount.setStatus(safeMapStripeStatus(session.getStatus()));
+            // Store Stripe status as-is (e.g., 'complete', 'open', etc.)
+            discount.setStatus(session.getStatus());
+            discount.setPaymentStatus(session.getPaymentStatus());
             if (session.getCreated() != null) {
                 discount.setStripeCreatedAt(java.time.LocalDateTime.ofEpochSecond(session.getCreated(), 0, java.time.ZoneOffset.UTC));
             }
             if (session.getExpiresAt() != null) {
                 discount.setStripeExpiresAt(java.time.LocalDateTime.ofEpochSecond(session.getExpiresAt(), 0, java.time.ZoneOffset.UTC));
             }
-            discount.setPaymentStatus(session.getPaymentStatus());
             discountsRepository.save(discount);
 
             // Return payment link and details as a JSON object
@@ -114,22 +116,13 @@ public class DiscountsService {
         }
     }
 
-    // Helper for robust enum mapping
-    private com.zn.payment.entity.PaymentRecord.PaymentStatus safeMapStripeStatus(String status) {
-        if (status == null) return com.zn.payment.entity.PaymentRecord.PaymentStatus.PENDING;
-        try {
-            return com.zn.payment.entity.PaymentRecord.PaymentStatus.valueOf(status.toUpperCase());
-        } catch (IllegalArgumentException ex) {
-            return com.zn.payment.entity.PaymentRecord.PaymentStatus.PENDING;
-        }
-    }
     public Object handleStripeWebhook(HttpServletRequest request) throws IOException {
         String payload = request.getReader().lines().collect(Collectors.joining(System.lineSeparator()));
         String sigHeader = request.getHeader("Stripe-Signature");
 
         try {
-            // Verify the webhook signature
-            Event event = Webhook.constructEvent(payload, sigHeader, secretKey);
+            // Verify the webhook signature using the correct webhook secret
+            Event event = Webhook.constructEvent(payload, sigHeader, DiscountWebhook);
 
             // Handle the event
             if ("checkout.session.completed".equals(event.getType())) {
@@ -138,7 +131,8 @@ public class DiscountsService {
                 String sessionId = session.getId();
                 Discounts discount = discountsRepository.findBySessionId(sessionId);
                 if (discount != null) {
-                    discount.setStatus(safeMapStripeStatus(session.getStatus()));
+                    // Store Stripe status as-is (e.g., 'complete', 'open', etc.)
+                    discount.setStatus(session.getStatus());
                     discount.setPaymentStatus(session.getPaymentStatus());
                     if (session.getPaymentIntent() != null) {
                         discount.setPaymentIntentId(session.getPaymentIntent());

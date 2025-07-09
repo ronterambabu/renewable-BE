@@ -3,12 +3,8 @@ package com.zn.payment.entity;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-import com.zn.payment.entity.PaymentRecord.PaymentStatus;
-
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -51,9 +47,8 @@ public class Discounts {
     @Builder.Default
     private String currency = "eur";
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private PaymentStatus status;
+    @Column(nullable = false, length = 50)
+    private String status;
 
     // Stripe-specific timestamps (from Stripe response)
     @Column(nullable = false)
