@@ -12,13 +12,19 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 
 @Data
 @Builder
 @Entity
+@NoArgsConstructor
+@AllArgsConstructor
 public class Discounts {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -65,6 +71,15 @@ public class Discounts {
     // Additional Stripe fields
     @Column(length = 50)
     private String paymentStatus; // Stripe's payment_status
+@PrePersist
+protected void onCreate() {
+    this.createdAt = LocalDateTime.now();
+    this.updatedAt = LocalDateTime.now();
+}
 
+@PreUpdate
+protected void onUpdate() {
+    this.updatedAt = LocalDateTime.now();
+}
 
 }
